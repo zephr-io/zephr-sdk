@@ -1,0 +1,58 @@
+{
+  "name": "zephr",
+  "version": "1.2.0",
+  "description": "Zero-knowledge secret transport for AI agents — CLI and JavaScript SDK",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./sdk.js",
+      "types": "./types.d.ts"
+    }
+  },
+  "types": "./types.d.ts",
+  "files": [
+    "sdk.js",
+    "sdk-api.js",
+    "sdk-crypto.js",
+    "errors.js",
+    "link.js",
+    "limits.js",
+    "types.d.ts",
+    "index.js",
+    "api.js",
+    "crypto.js",
+    "cli.js",
+    "README.md"
+  ],
+  "bin": {
+    "zephr": "./index.js"
+  },
+  "keywords": [
+    "zephr",
+    "secrets",
+    "secret-transport",
+    "zero-knowledge",
+    "AI-agents",
+    "agent-to-agent",
+    "encryption",
+    "aes-gcm-256",
+    "cli",
+    "sdk",
+    "autonomous-systems",
+    "one-time-secret"
+  ],
+  "author": "Zephr Technologies",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zephr-io/zephr-sdk.git",
+    "directory": "js"
+  },
+  "homepage": "https://zephr.io",
+  "bugs": {
+    "url": "https://github.com/zephr-io/zephr-sdk/issues"
+  }
+}
