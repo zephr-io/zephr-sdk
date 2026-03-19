@@ -262,13 +262,15 @@ Full SDK reference at [zephr.io/docs](https://zephr.io/docs#js-sdk).
 ## Error handling
 
 ```js
-import { createSecret, retrieveSecret, ValidationError, ApiError, NetworkError } from 'zephr';
+import { createSecret, retrieveSecret, ValidationError, EncryptionError, ApiError, NetworkError } from 'zephr';
 
 try {
   const { fullLink } = await createSecret('my secret');
 } catch (err) {
   if (err instanceof ValidationError) {
     // Invalid input: empty or whitespace-only string, exceeds 2,048 bytes, unsupported expiry
+  } else if (err instanceof EncryptionError) {
+    // AES-GCM key generation or encryption/decryption failed
   } else if (err instanceof ApiError) {
     console.error(err.statusCode);  // e.g. 429, 403, 401, 410
     console.error(err.code);        // e.g. 'MONTHLY_LIMIT_EXCEEDED'

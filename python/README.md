@@ -180,6 +180,9 @@ try:
 except zephr.ValidationError:
     # Invalid input: empty or whitespace-only string, too long, bad expiry
     pass
+except zephr.EncryptionError:
+    # AES-GCM encryption or decryption failed
+    pass
 except zephr.ApiError as e:
     # Server returned an error
     print(e.status_code)  # e.g. 429, 401, 403
