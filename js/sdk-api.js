@@ -2,7 +2,7 @@
  * Isomorphic HTTP client for the Zephr SDK.
  *
  * Uses the Fetch API (globalThis.fetch) — available in all modern browsers
- * and Node.js 20+.  Safe to bundle for browser environments.
+ * and Node.js 22+.  Safe to bundle for browser environments.
  *
  * Responsibilities:
  *   - POST encrypted blob to /api/secrets
@@ -128,15 +128,16 @@ function throwNetworkError(err) {
  * secret ID and expiration timestamp.
  *
  * @param {string}          encryptedBlob  Base64url-encoded encrypted JSON blob.
- * @param {number}          expiryHours    Expiry in hours: 1, 24, 168, or 720.
+ * @param {number}          expiry         Expiry in minutes (must be in ALLOWED_EXPIRY).
  * @param {boolean}         splitUrlMode   Whether the caller intends to share URL and key separately.
  * @param {string | null}   [apiKey]       Optional Bearer token for authenticated requests.
+ * @param {string}          [hint]         Optional plaintext label (non-secret, max 128 chars).
  * @returns {Promise<{ id: string, expiresAt: string }>}
  * @throws {ApiError}        Server returned a non-201 response.
  * @throws {NetworkError}    Transport-level failure (timeout, DNS, TLS, etc.).
  * @throws {ValidationError} Server response failed structural validation.
  */
-export async function uploadSecret(encryptedBlob, expiryHours, splitUrlMode, apiKey = null) {
+export async function uploadSecret(encryptedBlob, expiry, splitUrlMode, apiKey = null, hint) {
     const headers = /** @type {Record<string, string>} */ ({
         'Content-Type': 'application/json',
         'User-Agent':   `zephr-js/${SDK_VERSION}`,
@@ -148,8 +149,9 @@ export async function uploadSecret(encryptedBlob, expiryHours, splitUrlMode, api
 
     const body = JSON.stringify({
         encrypted_blob: encryptedBlob,
-        expiry_hours:   expiryHours,
+        expiry,
         split_url_mode: splitUrlMode,
+        ...(hint && { hint }),
     });
 
     let response;
@@ -191,7 +193,7 @@ export async function uploadSecret(encryptedBlob, expiryHours, splitUrlMode, api
 }
 
 /**
- * Fetch the encrypted blob for a secret and consume it atomically.
+ * Fetch and consume an encrypted secret from the Zephr API.
  *
  * This operation is exactly-once: the server permanently destroys the record
  * the moment it is read.  A second request for the same ID returns 410 Gone
@@ -199,7 +201,7 @@ export async function uploadSecret(encryptedBlob, expiryHours, splitUrlMode, api
  *
  * @param {string}        secretId  22-character base64url secret identifier.
  * @param {string | null} [apiKey]  Optional Bearer token for authenticated requests.
- * @returns {Promise<string>}  The encrypted blob string (base64url).
+ * @returns {Promise<{ encryptedBlob: string, purgeAt: string | undefined, hint: string | undefined }>}
  * @throws {ApiError}        404 (not found / expired), 410 (consumed), 429 (rate limited).
  * @throws {NetworkError}    Transport-level failure.
  * @throws {ValidationError} Server response failed structural validation.
@@ -248,11 +250,15 @@ export async function fetchSecret(secretId, apiKey = null) {
         throw new ValidationError('Invalid server response: body is not valid JSON.');
     }
 
-    const { encrypted_blob } = /** @type {Record<string, unknown>} */ (parsed);
+    const { encrypted_blob, purge_at, hint } = /** @type {Record<string, unknown>} */ (parsed);
 
     if (typeof encrypted_blob !== 'string' || !/^[A-Za-z0-9_-]+$/.test(encrypted_blob)) {
         throw new ValidationError('Invalid server response: malformed encrypted blob.');
     }
 
-    return encrypted_blob;
+    return {
+        encryptedBlob: encrypted_blob,
+        purgeAt: typeof purge_at === 'string' || typeof purge_at === 'number' ? String(purge_at) : undefined,
+        hint: typeof hint === 'string' ? hint : undefined,
+    };
 }

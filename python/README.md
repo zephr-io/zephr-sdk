@@ -48,11 +48,12 @@ Agent A encrypts and hands off the link. Agent B retrieves it exactly once:
 
 ```python
 # Agent A: encrypt and dispatch
-result = zephr.create_secret("sk-live-abc123", expiry_hours=1)
+result = zephr.create_secret("sk-live-abc123", expiry=60, hint="STRIPE_KEY_PROD")
 agent_b.dispatch({"credential": result["full_link"]})
 
 # Agent B: consumed atomically on first read
-secret = zephr.retrieve_secret(result["full_link"])
+result = zephr.retrieve_secret(result["full_link"])
+plaintext = result["plaintext"]
 ```
 
 ### Retrieve a secret
@@ -61,10 +62,12 @@ secret = zephr.retrieve_secret(result["full_link"])
 import zephr
 
 # Full URL string
-secret = zephr.retrieve_secret("https://zephr.io/secret/abc123#v1.key...")
+result = zephr.retrieve_secret("https://zephr.io/secret/abc123#v1.key...")
+plaintext = result["plaintext"]
 
 # Split mode
-secret = zephr.retrieve_secret({"url": "https://zephr.io/secret/abc123", "key": "v1.key..."})
+result = zephr.retrieve_secret({"url": "https://zephr.io/secret/abc123", "key": "v1.key..."})
+plaintext = result["plaintext"]
 ```
 
 Retrieval is exactly-once. The server permanently destroys the record on first access.
@@ -73,13 +76,16 @@ Retrieval is exactly-once. The server permanently destroys the record on first a
 
 ```python
 # Expire in 1 hour
-result = zephr.create_secret("secret", expiry_hours=1)
+result = zephr.create_secret("secret", expiry=60)
 
 # Expire in 7 days
-result = zephr.create_secret("secret", expiry_hours=168)
+result = zephr.create_secret("secret", expiry=10080)
 
 # Expire in 30 days (Dev/Pro)
-result = zephr.create_secret("secret", expiry_hours=720, api_key="zeph_...")
+result = zephr.create_secret("secret", expiry=43200, api_key="zeph_...")
+
+# Attach a plaintext label for routing and audit logs
+result = zephr.create_secret("secret", hint="STRIPE_KEY_PROD")
 
 # Split URL and key for separate transmission
 result = zephr.create_secret("secret", split=True)
@@ -112,18 +118,18 @@ Split mode:
 }
 ```
 
-`retrieve_secret()` returns the decrypted secret as a string.
+`retrieve_secret()` returns a dict with keys `plaintext` (str), `hint` (str or None), and `purge_at` (str or None).
 
 ## Authentication
 
 The SDK works without an account. No setup required. **Free, Dev, and Pro tier features require an API key.** Pass it via the `api_key` parameter. Anonymous requests are capped at 3/day per IP with a 1 h max expiry.
 
-| Tier | Create limit | Max expiry | Max size | Authentication |
-|------|-------------|------------|----------|----------------|
-| Anonymous | 3/day | 1 h | 6 KB | None |
-| Free | 50/month | 7 days | 20 KB | `api_key="zeph_..."` |
-| Dev ($15/mo) | 2,000/month | 30 days | 200 KB | `api_key="zeph_..."` |
-| Pro ($39/mo) | 50,000/month | 30 days | 1 MB | `api_key="zeph_..."` |
+| Tier | Create limit | Expiry options | Max size | Authentication |
+|------|-------------|----------------|----------|----------------|
+| Anonymous | 3/day | 1h | 6 KB | None |
+| Free | 50/month | 1h, 24h, 7d, 30d | 20 KB | `api_key="zeph_..."` |
+| Dev ($15/mo) | 2,000/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 200 KB | `api_key="zeph_..."` |
+| Pro ($39/mo) | 50,000/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 1 MB | `api_key="zeph_..."` |
 
 **Getting an API key:** Log in at [zephr.io/account](https://zephr.io/account), open the API Keys tab, and create a key. The raw key is shown exactly once. Copy it immediately.
 
@@ -156,7 +162,7 @@ import os, zephr
 
 result = zephr.create_secret(
     os.environ["MY_SECRET"],
-    expiry_hours=1,
+    expiry=60,
     api_key=os.environ.get("ZEPHR_API_KEY"),
 )
 print(result["full_link"])
@@ -172,7 +178,7 @@ import zephr
 try:
     result = zephr.create_secret("my secret")
 except zephr.ValidationError:
-    # Invalid input: empty or whitespace-only string, too long, bad expiry_hours
+    # Invalid input: empty or whitespace-only string, too long, bad expiry
     pass
 except zephr.ApiError as e:
     # Server returned an error
@@ -188,7 +194,7 @@ Common `ApiError` codes:
 | Code | Status | Meaning |
 |------|--------|---------|
 | `INVALID_API_KEY` | 401 | Key not found or revoked |
-| `UPGRADE_REQUIRED` | 403 | Feature requires a higher tier (e.g. expiry > 1h without an account, or 720h without Dev/Pro) |
+| `UPGRADE_REQUIRED` | 403 | Feature requires a higher tier (e.g. expiry > 60 min without an account, or sub-hour expiry (5, 15, 30 min) without Dev/Pro) |
 | `ANON_RATE_LIMIT_EXCEEDED` | 429 | Anonymous daily limit reached (3/day per IP) |
 | `MONTHLY_LIMIT_EXCEEDED` | 429 | Monthly create limit reached for this API key |
 | `PAYLOAD_TOO_LARGE` | 413 | Encrypted blob exceeds the tier blob ceiling |

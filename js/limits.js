@@ -20,6 +20,20 @@ export const SECRET_MAX_LENGTH  = 2048;
 // Used by the SDK and CLI to validate secret IDs before interpolating into URLs.
 export const SECRET_ID_RE = /^[A-Za-z0-9_-]{22}$/;
 
-// Valid expiry values in hours — shared across SDK, CLI, and arg parser.
-// Centralised here so a future tier change only requires one edit.
-export const VALID_EXPIRY_HOURS = new Set([1, 24, 168, 720]);
+/**
+ * Valid expiry values in minutes — shared across SDK, CLI, and arg parser.
+ * Centralised here so a future tier change only requires one edit.
+ *
+ * Named constants for developer ergonomics (raw integers work too).
+ */
+export const VALID_EXPIRY = new Set([5, 15, 30, 60, 1440, 10080, 43200]);
+
+export const EXPIRY = Object.freeze({
+    MINUTES_5:  5,
+    MINUTES_15: 15,
+    MINUTES_30: 30,
+    HOURS_1:    60,
+    HOURS_24:   1440,
+    DAYS_7:     10080,
+    DAYS_30:    43200,
+});

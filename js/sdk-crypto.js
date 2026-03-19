@@ -2,7 +2,7 @@
  * Isomorphic cryptography module for the Zephr SDK.
  *
  * Uses the Web Crypto API (globalThis.crypto.subtle) exclusively, which is
- * available in all modern browsers and Node.js 20+. No Node.js-specific
+ * available in all modern browsers and Node.js 22+. No Node.js-specific
  * imports — this module is safe to bundle for browser environments.
  *
  * Encryption format (wire-compatible with the CLI and Python SDK):

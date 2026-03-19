@@ -4,7 +4,7 @@
  */
 
 import { createRequire } from 'node:module';
-import { SECRET_MAX_BYTES, VALID_EXPIRY_HOURS } from './limits.js';
+import { SECRET_MAX_BYTES, VALID_EXPIRY } from './limits.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('./package.json');
@@ -17,11 +17,11 @@ const { version } = require('./package.json');
  */
 function parseExpiryFlag(args, i, config) {
     if (i + 1 >= args.length) {
-        throw new Error('--expiry requires a value (1, 24, 168, or 720)');
+        throw new Error('--expiry requires a value in minutes (e.g. 5, 15, 30, 60, 1440, 10080, 43200)');
     }
     const value = Number.parseInt(args[i + 1], 10);
-    if (!VALID_EXPIRY_HOURS.has(value)) {
-        throw new Error(`Expiry must be one of: ${[...VALID_EXPIRY_HOURS].join(', ')} hours`);
+    if (!VALID_EXPIRY.has(value)) {
+        throw new Error(`Expiry must be one of: ${[...VALID_EXPIRY].join(', ')} minutes`);
     }
     config.expiry = value;
     return i + 1;
@@ -42,16 +42,37 @@ function parseApiKeyFlag(args, i, config) {
 }
 
 /**
- * Parse command-line arguments
- * @param {string[]} args - Process arguments
- * @returns {{secret: string, expiry: number, split: boolean, help: boolean, version: boolean}}
+ * Parse command-line arguments.
+ *
+ * Supports two modes:
+ *   zephr <secret> [options]           — create (default)
+ *   zephr retrieve <link> [options]    — retrieve
+ *
+ * @param {string[]} args - Process arguments (process.argv.slice(2))
+ * @returns {object} Parsed config with `mode` field ('create' | 'retrieve')
  */
 export function parseArgs(args) {
+    // Detect retrieve subcommand before entering the flag loop.
+    if (args.length > 0 && args[0] === 'retrieve') {
+        return parseRetrieveArgs(args.slice(1));
+    }
+
+    return parseCreateArgs(args);
+}
+
+/**
+ * Parse arguments for the create subcommand (default mode).
+ * @param {string[]} args
+ * @returns {object}
+ */
+function parseCreateArgs(args) {
     const config = {
+        mode: 'create',
         secret: null,
-        expiry: 1,
+        expiry: 60,
         split: false,
         apiKey: null,
+        hint: null,
         help: false,
         version: false
     };
@@ -70,8 +91,52 @@ export function parseArgs(args) {
             config.split = true;
         } else if (arg === '--api-key' || arg === '-k') {
             i = parseApiKeyFlag(args, i, config);
+        } else if (arg === '--hint' || arg === '-H') {
+            if (i + 1 >= args.length) throw new Error('--hint requires a value');
+            config.hint = args[++i];
         } else if (!arg.startsWith('-') && !config.secret) {
             config.secret = arg;
+        }
+        i++;
+    }
+
+    return config;
+}
+
+/**
+ * Parse arguments for the retrieve subcommand.
+ * @param {string[]} args - Arguments after 'retrieve'
+ * @returns {object}
+ */
+function parseRetrieveArgs(args) {
+    const config = {
+        mode: 'retrieve',
+        link: null,
+        retrieveUrl: null,
+        retrieveKey: null,
+        apiKey: null,
+        help: false,
+        version: false
+    };
+
+    let i = 0;
+    while (i < args.length) {
+        const arg = args[i];
+
+        if (arg === '--help' || arg === '-h') {
+            config.help = true;
+        } else if (arg === '--version' || arg === '-v') {
+            config.version = true;
+        } else if (arg === '--url') {
+            if (i + 1 >= args.length) throw new Error('--url requires a value');
+            config.retrieveUrl = args[++i];
+        } else if (arg === '--key') {
+            if (i + 1 >= args.length) throw new Error('--key requires a value');
+            config.retrieveKey = args[++i];
+        } else if (arg === '--api-key' || arg === '-k') {
+            i = parseApiKeyFlag(args, i, config);
+        } else if (!arg.startsWith('-') && !config.link) {
+            config.link = arg;
         }
         i++;
     }
@@ -117,42 +182,77 @@ export function printHelp() {
 zephr - Secure one-time secret sharing from the command line
 
 USAGE:
-  zephr <secret> [options]
-  echo "secret" | zephr [options]
+  zephr <secret> [options]           Create a one-time secret
+  echo "secret" | zephr [options]    Create from stdin
+  zephr retrieve <link> [options]    Retrieve and decrypt a secret
 
-OPTIONS:
-  -e, --expiry <hours>   Expiration time: 1, 24, 168, or 720 (default: 1)
-                           Without an API key: capped at 1h
-                           Free account:       up to 168h (7 days)
-                           Dev/Pro account:    up to 720h (30 days)
+OPTIONS (create):
+  -e, --expiry <minutes> Expiration in minutes (default: 60)
+                           5, 15, 30        — Dev/Pro only
+                           60 (1h)          — all tiers
+                           1440 (24h)       — Free and above
+                           10080 (7d)       — Free and above
+                           43200 (30d)      — Free and above
+  -H, --hint <label>     Plaintext label (e.g. "STRIPE_KEY_PROD"), max 128 chars
   -s, --split            Split URL and key for separate transmission
   -k, --api-key <key>    Authenticate with a Zephr API key (overrides ZEPHR_API_KEY)
+
+OPTIONS (retrieve):
+  --url <url>            Secret URL (split mode)
+  --key <key>            Encryption key (split mode)
+  -k, --api-key <key>    Authenticate with a Zephr API key
+
+GENERAL:
   -v, --version          Show version number
   -h, --help             Show this help message
 
 AUTHENTICATION:
-  API keys unlock longer expiry, higher rate limits, and usage tracking.
-  Free account: up to 168h expiry, 50 secrets/month.
-  Dev account:  up to 720h expiry, 2,000 secrets/month.
-  Pro account:  up to 720h expiry, 50,000 secrets/month.
+  API keys unlock more expiry options, higher rate limits, and usage tracking.
+  Free account: 1h–30d expiry, 50 secrets/month.
+  Dev account:  5m–30d expiry, 2,000 secrets/month.
+  Pro account:  5m–30d expiry, 50,000 secrets/month.
   Create a key at https://zephr.io/account, then pass it via:
     --api-key zeph_...          flag
     ZEPHR_API_KEY=zeph_... zephr  environment variable
 
 EXAMPLES:
   zephr "my secret password"
-  zephr "api-key-12345" --expiry 1
+  zephr "api-key-12345" --expiry 60
+  zephr "db-cred" --expiry 15 --api-key zeph_... --hint "DB_PROD"
   zephr "sensitive data" --split
-  echo "password" | zephr
-  cat secret.txt | zephr --expiry 168
-  ZEPHR_API_KEY=zeph_... zephr "secret" --expiry 1
-
-OUTPUT:
-  Standard mode: Single shareable link
-  Split mode:    Separate URL and key for different channels
+  echo "password" | zephr --hint "deploy key"
+  zephr retrieve "https://zephr.io/secret/abc123...#v1.key..."
+  zephr retrieve --url "https://zephr.io/secret/abc123..." --key "v1.key..."
 
 MORE INFO:
   https://zephr.io
+`);
+}
+
+/**
+ * Print retrieve-specific help
+ */
+export function printRetrieveHelp() {
+    console.log(`
+zephr retrieve - Retrieve and decrypt a one-time secret
+
+USAGE:
+  zephr retrieve <link>                            Standard mode
+  zephr retrieve --url <url> --key <key>           Split mode
+  echo "https://zephr.io/secret/...#v1..." | zephr retrieve
+
+OPTIONS:
+  --url <url>            Secret URL (split mode, without key fragment)
+  --key <key>            Encryption key (split mode, e.g. v1.abc...)
+  -k, --api-key <key>    Authenticate with a Zephr API key
+  -h, --help             Show this help message
+
+The decrypted secret is written to stdout. Errors go to stderr.
+
+EXAMPLES:
+  zephr retrieve "https://zephr.io/secret/Ht7kR2mNqP3w#v1.abc..."
+  zephr retrieve --url "https://zephr.io/secret/Ht7kR2mNqP3w" --key "v1.abc..."
+  SECRET_LINK="https://zephr.io/secret/...#v1..." && zephr retrieve "$SECRET_LINK"
 `);
 }
 
@@ -166,9 +266,9 @@ export function printVersion() {
 /**
  * Print success output
  * @param {{mode: string, url?: string, key?: string, fullLink?: string}} linkData
- * @param {number} expiryHours
+ * @param {number} expiry - Expiry in minutes
  */
-export function printSuccess(linkData, expiryHours) {
+export function printSuccess(linkData, expiry) {
     console.log('\n[OK] Secret encrypted on your device');
     console.log('[OK] Uploaded to Zephr');
 
@@ -180,9 +280,12 @@ export function printSuccess(linkData, expiryHours) {
         console.log(`\nLink: ${linkData.fullLink}`);
     }
 
-    const EXPIRY_LABELS = { 1: '1 hour', 24: '24 hours', 168: '7 days', 720: '30 days' };
-    const expiryText = EXPIRY_LABELS[expiryHours];
-    if (!expiryText) throw new Error(`Unexpected expiry value: ${expiryHours}`);
+    const EXPIRY_LABELS = {
+        5: '5 minutes', 15: '15 minutes', 30: '30 minutes',
+        60: '1 hour', 1440: '24 hours', 10080: '7 days', 43200: '30 days'
+    };
+    const expiryText = EXPIRY_LABELS[expiry];
+    if (!expiryText) throw new Error(`Unexpected expiry value: ${expiry}`);
     console.log(`\nExpires in ${expiryText}. One-time access only.\n`);
 }
 

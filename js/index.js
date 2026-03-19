@@ -20,7 +20,8 @@
 import { generateKey, exportKey, createEncryptedBlob, createKeyString } from './crypto.js';
 import { uploadSecret } from './api.js';
 import { generateLink } from './link.js';
-import { parseArgs, readStdin, printHelp, printVersion, printSuccess, printError } from './cli.js';
+import { parseArgs, readStdin, printHelp, printRetrieveHelp, printVersion, printSuccess, printError } from './cli.js';
+import { retrieveSecret } from './sdk.js';
 import { SECRET_MAX_BYTES } from './limits.js';
 
 /**
@@ -36,9 +37,13 @@ async function main() {
         const args = process.argv.slice(2);
         const config = parseArgs(args);
 
-        // Show help if requested
+        // Show help if requested (mode-aware)
         if (config.help) {
-            printHelp();
+            if (config.mode === 'retrieve') {
+                printRetrieveHelp();
+            } else {
+                printHelp();
+            }
             process.exit(0);
         }
 
@@ -52,12 +57,44 @@ async function main() {
         // Done before stdin/crypto so the expiry guard fires before any expensive work.
         const apiKey = config.apiKey ?? process.env.ZEPHR_API_KEY ?? null;
 
-        // Client-side enforcement: anonymous use is capped at 1h.
+        // --- Retrieve mode ---
+        if (config.mode === 'retrieve') {
+            let link;
+
+            if (config.link) {
+                // Standard mode: full link as positional arg
+                link = config.link;
+            } else if (config.retrieveUrl || config.retrieveKey) {
+                // Split mode: both --url and --key are required together
+                if (!config.retrieveUrl) throw new Error('--url is required when using --key (split mode).');
+                if (!config.retrieveKey) throw new Error('--key is required when using --url (split mode).');
+                link = { url: config.retrieveUrl, key: config.retrieveKey };
+            } else if (!process.stdin.isTTY) {
+                // Read link from stdin (e.g., piped from another command)
+                link = (await readStdin()).trim();
+            } else {
+                throw new Error(
+                    'Provide a link to retrieve:\n' +
+                    '  zephr retrieve "https://zephr.io/secret/...#v1..."\n' +
+                    '  zephr retrieve --url "..." --key "v1..."\n' +
+                    'Run "zephr retrieve --help" for usage.'
+                );
+            }
+
+            const result = await retrieveSecret(link, { apiKey });
+            if (result.hint) {
+                process.stderr.write(`Hint: ${result.hint}\n`);
+            }
+            process.stdout.write(result.plaintext);
+            process.exit(0);
+        }
+
+        // Client-side enforcement: anonymous use is capped at 60 minutes (1h).
         // The server enforces this too; this guard gives a clear error before any network call.
-        if (apiKey === null && config.expiry > 1) {
+        if (apiKey === null && config.expiry !== 60) {
             throw new Error(
-                'Anonymous use is limited to 1h expiry.\n' +
-                'To unlock longer expiry, pass an API key (free: up to 7 days, Dev/Pro: up to 30 days):\n' +
+                'Anonymous use is limited to 60-minute (1h) expiry.\n' +
+                'To unlock more expiry options, pass an API key (free: up to 30d, Dev/Pro: adds sub-hour):\n' +
                 `  zephr "secret" --expiry ${config.expiry} --api-key zeph_...\n` +
                 `  ZEPHR_API_KEY=zeph_... zephr "secret" --expiry ${config.expiry}\n` +
                 'Create a free account at https://zephr.io/account'
@@ -104,7 +141,8 @@ async function main() {
             encryptedBlob,
             config.expiry,
             config.split,
-            apiKey
+            apiKey,
+            config.hint ?? undefined
         );
 
         // Generate shareable link

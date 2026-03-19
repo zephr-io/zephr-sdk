@@ -21,8 +21,8 @@ from .link import generate_link
 from .limits import SECRET_MAX_BYTES
 from .exceptions import EncryptionError, ValidationError
 
-# Valid expiry options (hours) — matches web app and CLI
-_VALID_EXPIRY_HOURS = frozenset({1, 24, 168, 720})
+# Valid expiry options (minutes) — matches web app and CLI
+_VALID_EXPIRY_MINUTES = frozenset({5, 15, 30, 60, 1440, 10080, 43200})
 
 # Matches the secret ID segment in a URL path: /secret/<22-char base64url>
 _SECRET_ID_RE = re.compile(r"^/secret/([A-Za-z0-9_-]{22})(?:[/?#]|$)")
@@ -31,8 +31,9 @@ _SECRET_ID_RE = re.compile(r"^/secret/([A-Za-z0-9_-]{22})(?:[/?#]|$)")
 def create_secret(
     secret: str,
     *,
-    expiry_hours: int = 1,
+    expiry: int = 60,
     split: bool = False,
+    hint: str | None = None,
     api_key: str | None = None,
 ) -> dict:
     """Create an encrypted one-time secret on Zephr.
@@ -46,8 +47,12 @@ def create_secret(
 
     Args:
         secret: The plaintext secret to share (max 2,048 UTF-8 bytes).
-        expiry_hours: Hours until expiration — 1, 24, 168, or 720 (default: 1; 24h+ requires a free account; 720 requires Dev/Pro).
+        expiry: Minutes until expiration — 5, 15, 30, 60, 1440, 10080, or 43200
+            (default: 60). Sub-hour values (5, 15, 30) require a Dev or Pro API key.
+            All other values require a free account or higher.
         split: If True, return URL and key separately for split sharing.
+        hint: Optional plaintext label for routing and audit logs. Not encrypted.
+            Must be 1-128 printable ASCII characters.
         api_key: Optional API key for authenticated requests.
 
     Returns:
@@ -76,7 +81,7 @@ def create_secret(
 
         import zephr
 
-        result = zephr.create_secret("my-api-key", expiry_hours=1)
+        result = zephr.create_secret("my-api-key", expiry=60)
         print(result["full_link"])
 
         result = zephr.create_secret("password", split=True)
@@ -96,17 +101,25 @@ def create_secret(
             f"Secret too long ({byte_length:,} UTF-8 bytes; max {SECRET_MAX_BYTES:,})"
         )
 
-    if isinstance(expiry_hours, bool) or not isinstance(expiry_hours, int) or expiry_hours not in _VALID_EXPIRY_HOURS:
-        raise ValidationError("expiry_hours must be 1, 24, 168, or 720 (720 requires Dev/Pro)")
+    if isinstance(expiry, bool) or not isinstance(expiry, int) or expiry not in _VALID_EXPIRY_MINUTES:
+        raise ValidationError("expiry must be 5, 15, 30, 60, 1440, 10080, or 43200 (minutes)")
 
-    if api_key is None and expiry_hours > 1:
+    if api_key is None and expiry != 60:
         raise ValidationError(
-            "Anonymous use is limited to 1h expiry — pass api_key= to unlock longer expiry "
-            "(free: up to 7 days, Dev/Pro: up to 30 days). Create a free account at https://zephr.io/account"
+            "Anonymous use is limited to 60-minute expiry — pass api_key= to unlock other expiry values "
+            "(free: up to 30 days, Dev/Pro: adds sub-hour). Create a free account at https://zephr.io/account"
         )
 
     if not isinstance(split, bool):
         raise ValidationError("split must be a boolean")
+
+    if hint is not None:
+        if not isinstance(hint, str):
+            raise ValidationError("hint must be a string")
+        if len(hint) < 1 or len(hint) > 128:
+            raise ValidationError("hint must be 1-128 characters")
+        if not re.fullmatch(r"[\x20-\x7E]+", hint):
+            raise ValidationError("hint must contain only printable ASCII characters")
 
     # --- Encoding boundary: str -> UTF-8 bytes ---
     secret_bytes = bytearray(secret.encode("utf-8"))
@@ -121,7 +134,7 @@ def create_secret(
         encrypted_blob = encrypt(bytes(secret_bytes), bytes(key_bytes))
 
         # Upload
-        result = upload_secret(encrypted_blob, expiry_hours, split, api_key)
+        result = upload_secret(encrypted_blob, expiry, split, api_key, hint=hint)
 
         # Generate link
         link_data = generate_link(result["id"], key_string, split)
@@ -193,7 +206,7 @@ def retrieve_secret(
     link,
     *,
     api_key: str | None = None,
-) -> str:
+) -> dict:
     """Retrieve and decrypt a one-time secret from Zephr.
 
     This operation is exactly-once: the server permanently destroys the record
@@ -206,7 +219,8 @@ def retrieve_secret(
         api_key: Optional API key for authenticated requests.
 
     Returns:
-        The decrypted plaintext secret as a string.
+        Dict with ``plaintext`` (str), ``hint`` (str or None), and
+        ``purge_at`` (str or None).
 
     Raises:
         ValidationError: If the link format is invalid.
@@ -218,25 +232,32 @@ def retrieve_secret(
 
         import zephr
 
-        secret = zephr.retrieve_secret(
+        result = zephr.retrieve_secret(
             "https://zephr.io/secret/abc123...#v1.key..."
         )
-        print(secret)
+        print(result["plaintext"])  # decrypted secret
+        print(result["hint"])       # plaintext label, or None
 
         # Split mode
-        secret = zephr.retrieve_secret(
+        result = zephr.retrieve_secret(
             {"url": "https://zephr.io/secret/abc123...", "key": "v1.key..."}
         )
+        print(result["plaintext"])
     """
     secret_id, key_string = _parse_retrieve_input(link)
 
-    encrypted_blob = fetch_secret(secret_id, api_key=api_key)
+    response = fetch_secret(secret_id, api_key=api_key)
 
-    plaintext_bytes = bytearray(decrypt(encrypted_blob, key_string))
+    plaintext_bytes = bytearray(decrypt(response["encrypted_blob"], key_string))
     try:
         try:
-            return plaintext_bytes.decode("utf-8")
+            plaintext = plaintext_bytes.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise EncryptionError("Decrypted content is not valid UTF-8.") from exc
+        return {
+            "plaintext": plaintext,
+            "hint": response.get("hint"),
+            "purge_at": response.get("purge_at"),
+        }
     finally:
         zero_bytes(plaintext_bytes)

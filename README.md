@@ -6,7 +6,7 @@ Create a one-time secret link: encrypted on your device and self-destructing aft
 
 Built for zero-knowledge secret handoff between independent systems: AI agents, CI/CD pipelines, GitHub Actions, and human operators.
 
-- [npm package](https://www.npmjs.com/package/zephr): JavaScript SDK + CLI (Node.js 20+)
+- [npm package](https://www.npmjs.com/package/zephr): JavaScript SDK + CLI (Node.js 22+)
 - [PyPI package](https://pypi.org/project/zephr): Python SDK (Python 3.10+)
 - [API docs](https://zephr.io/docs)
 - [zephr.io](https://zephr.io)
@@ -45,17 +45,26 @@ npx zephr "my-secret"
 # Global install
 npm install -g zephr
 
-# SDK for Node.js 20+ and browser bundles
+# SDK for Node.js 22+ and browser bundles
 npm install zephr
 ```
 
 ### Create a secret
 
 ```js
+import { createSecret, retrieveSecret } from 'zephr';
+
+// Named expiry constants for readability (raw integers also accepted)
+import { EXPIRY } from 'zephr/limits.js';
+// EXPIRY.MINUTES_5, EXPIRY.MINUTES_15, EXPIRY.MINUTES_30,
+// EXPIRY.HOURS_1, EXPIRY.HOURS_24, EXPIRY.DAYS_7, EXPIRY.DAYS_30
+```
+
+```js
 import { createSecret } from 'zephr';
 
 // Agent A: encrypt and dispatch
-const { fullLink } = await createSecret('sk-live-abc123', { expiry: 1 });
+const { fullLink } = await createSecret('sk-live-abc123', { expiry: 60, hint: 'STRIPE_KEY_PROD' });
 agentB.dispatch({ credential: fullLink });
 ```
 
@@ -65,30 +74,30 @@ agentB.dispatch({ credential: fullLink });
 import { retrieveSecret } from 'zephr';
 
 // Agent B: retrieve once, then permanently deleted
-const secret = await retrieveSecret(fullLink);
+const { plaintext } = await retrieveSecret(fullLink);
 ```
 
 ### Split mode: URL and key through separate channels
 
 ```js
-const { url, key } = await createSecret('db-password', { split: true, expiry: 1 });
+const { url, key } = await createSecret('db-password', { split: true, expiry: 60 });
 agentB.dispatch({ credentialUrl: url });
 sideChannel.send(key); // key never shares a channel with the URL
 
-const secret = await retrieveSecret({ url, key });
+const { plaintext } = await retrieveSecret({ url, key });
 ```
 
 ### CLI
 
 ```bash
 # Pass a credential to a downstream process
-echo "$DB_PASSWORD" | zephr --expiry 1
+echo "$DB_PASSWORD" | zephr --expiry 60
 
 # Split mode: URL and key through separate channels
 zephr "$API_KEY" --split
 
 # Authenticated: higher limits and longer expiry
-zephr "$API_KEY" --expiry 168 --api-key zeph_...
+zephr "$API_KEY" --expiry 10080 --api-key zeph_...
 ```
 
 Full CLI and JavaScript SDK reference: [zephr.io/docs](https://zephr.io/docs)
@@ -109,7 +118,7 @@ pip install zephr
 import zephr
 
 # Agent A: encrypt and dispatch
-result = zephr.create_secret("sk-live-abc123", expiry_hours=1)
+result = zephr.create_secret("sk-live-abc123", expiry=60)
 agent_b.dispatch({"credential": result["full_link"]})
 ```
 
@@ -117,17 +126,19 @@ agent_b.dispatch({"credential": result["full_link"]})
 
 ```python
 # Agent B: retrieve once, then permanently deleted
-secret = zephr.retrieve_secret(result["full_link"])
+result = zephr.retrieve_secret(result["full_link"])
+plaintext = result["plaintext"]
 ```
 
 ### Split mode: URL and key through separate channels
 
 ```python
-result = zephr.create_secret("db-password", split=True, expiry_hours=1)
+result = zephr.create_secret("db-password", split=True, expiry=60)
 agent_b.dispatch({"credential_url": result["url"]})
 side_channel.send(result["key"])  # key never shares a channel with the URL
 
-secret = zephr.retrieve_secret({"url": result["url"], "key": result["key"]})
+result = zephr.retrieve_secret({"url": result["url"], "key": result["key"]})
+plaintext = result["plaintext"]
 ```
 
 Full Python SDK reference: [zephr.io/docs](https://zephr.io/docs)
@@ -138,12 +149,12 @@ Full Python SDK reference: [zephr.io/docs](https://zephr.io/docs)
 
 The CLI and both SDKs work without an account. No setup required. **Free, Dev, and Pro tier features require an API key.** Anonymous requests are capped at 3/day per IP with a 1 h max expiry.
 
-| Tier | Create limit | Max expiry | Max size |
-|------|-------------|------------|----------|
-| Anonymous | 3/day | 1 h | 6 KB |
-| Free | 50/month | 7 days | 20 KB |
-| Dev ($15/mo) | 2,000/month | 30 days | 200 KB |
-| Pro ($39/mo) | 50,000/month | 30 days | 1 MB |
+| Tier | Create limit | Expiry options | Max size |
+|------|-------------|----------------|----------|
+| Anonymous | 3/day | 1h | 6 KB |
+| Free | 50/month | 1h, 24h, 7d, 30d | 20 KB |
+| Dev ($15/mo) | 2,000/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 200 KB |
+| Pro ($39/mo) | 50,000/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 1 MB |
 
 **Getting an API key:** Log in at [zephr.io/account](https://zephr.io/account), open the API Keys tab, and create a key. The raw key is shown exactly once. Copy it immediately.
 

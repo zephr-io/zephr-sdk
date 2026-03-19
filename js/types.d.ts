@@ -15,14 +15,15 @@
  */
 export interface CreateSecretOptions {
     /**
-     * How long the secret remains available, in hours.
+     * How long the secret remains available, in minutes.
      *
-     * Accepted values: `1` (one hour), `24` (one day), `168` (seven days), `720` (thirty days).
-     * 720 requires a Dev or Pro API key — the server returns 403 if used without one.
+     * Accepted values: `5`, `15`, `30` (sub-hour, Dev/Pro only),
+     * `60` (1 hour), `1440` (24 hours), `10080` (7 days), `43200` (30 days).
+     * Sub-hour values require a Dev or Pro API key.
      *
-     * @default 1
+     * @default 60
      */
-    expiry?: 1 | 24 | 168 | 720;
+    expiry?: 5 | 15 | 30 | 60 | 1440 | 10080 | 43200;
 
     /**
      * When `true`, the returned object has `url` and `key` as separate
@@ -40,6 +41,14 @@ export interface CreateSecretOptions {
      * @default null
      */
     apiKey?: string | null;
+
+    /**
+     * Optional plaintext label stored alongside the ciphertext.
+     * Returned on retrieval for agent routing, audit logs, and dashboards.
+     * Must be 1-128 printable ASCII characters. Treat as non-secret —
+     * the hint is visible to anyone with the secret ID.
+     */
+    hint?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +94,19 @@ export interface SplitLink {
  * The object returned by {@link createSecret}.
  */
 export type SecretLink = StandardLink | SplitLink;
+
+/**
+ * The structured result returned by {@link retrieveSecret}.
+ * Contains the decrypted plaintext and server metadata.
+ */
+export interface RetrievalResult {
+    /** The decrypted plaintext secret, exactly as it was passed to createSecret. */
+    plaintext: string;
+    /** Plaintext label set by the creator, if provided. */
+    hint?: string;
+    /** ISO 8601 timestamp or Unix seconds indicating when the record will be purged from storage. */
+    purgeAt?: string;
+}
 
 /**
  * Options accepted by {@link retrieveSecret}.
@@ -137,7 +159,7 @@ export interface RetrieveSecretOptions {
  * @example
  * // 1-hour expiry with API key
  * const { fullLink } = await createSecret('temp-password', {
- *   expiry: 1,
+ *   expiry: 60,
  *   apiKey: process.env.ZEPHR_API_KEY,
  * });
  */
@@ -165,7 +187,7 @@ export declare function createSecret(
  *
  * @param options Optional configuration.
  *
- * @returns The decrypted plaintext string.
+ * @returns Structured result with decrypted plaintext and server metadata.
  *
  * @throws {@link ValidationError}  Invalid link format or missing key.
  * @throws {@link EncryptionError}  Key import or decryption failed.
@@ -173,31 +195,22 @@ export declare function createSecret(
  * @throws {@link NetworkError}     Transport-level failure.
  *
  * @example
- * // Standard mode — pass the full link
- * const plaintext = await retrieveSecret(fullLink);
+ * // Standard mode
+ * const { plaintext, hint } = await retrieveSecret(fullLink);
  *
  * @example
- * // Split mode — reconstruct from separately delivered components
- * const plaintext = await retrieveSecret({ url, key });
+ * // Split mode
+ * const { plaintext } = await retrieveSecret({ url, key });
  *
  * @example
- * // Error handling
- * try {
- *   const plaintext = await retrieveSecret(link);
- * } catch (err) {
- *   if (err instanceof ApiError && err.statusCode === 410) {
- *     console.error('Secret already consumed.');
- *   } else if (err instanceof ApiError && err.statusCode === 404) {
- *     console.error('Secret not found or expired.');
- *   } else {
- *     throw err;
- *   }
- * }
+ * // Route by hint
+ * const result = await retrieveSecret(link);
+ * if (result.hint === 'DB_PASSWORD') db.connect(result.plaintext);
  */
 export declare function retrieveSecret(
     link: string | { url: string; key: string },
     options?: RetrieveSecretOptions,
-): Promise<string>;
+): Promise<RetrievalResult>;
 
 // ---------------------------------------------------------------------------
 // Error classes

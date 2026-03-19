@@ -77,16 +77,18 @@ def _validate_response(result: dict) -> None:
 
 def upload_secret(
     encrypted_blob: str,
-    expiry_hours: int,
+    expiry: int,
     split_url_mode: bool,
     api_key: str | None = None,
+    *,
+    hint: str | None = None,
 ) -> dict:
     """Upload an encrypted secret to the Zephr API.
 
     Args:
         encrypted_blob: Base64url-encoded encrypted JSON blob.
-        expiry_hours: Hours until expiration. Accepted values: 1, 24, 168, or 720.
-            720h (30 days) requires a Dev or Pro API key.
+        expiry: Minutes until expiration. Accepted values: 5, 15, 30, 60, 1440, 10080, or 43200.
+            Sub-hour values (5, 15, 30) require a Dev or Pro API key. All other values require a free account or higher.
         split_url_mode: Whether to use split URL mode.
         api_key: Optional Bearer token for authenticated requests.
 
@@ -98,11 +100,14 @@ def upload_secret(
         NetworkError: If the request fails or times out.
         ValidationError: If the response structure is invalid.
     """
-    payload = json.dumps({
+    body = {
         "encrypted_blob": encrypted_blob,
-        "expiry_hours": expiry_hours,
+        "expiry": expiry,
         "split_url_mode": split_url_mode,
-    }).encode("utf-8")
+    }
+    if hint:
+        body["hint"] = hint
+    payload = json.dumps(body).encode("utf-8")
 
     headers = {
         "Content-Type": "application/json",
@@ -160,7 +165,7 @@ def upload_secret(
 def fetch_secret(
     secret_id: str,
     api_key: str | None = None,
-) -> str:
+) -> dict:
     """Fetch and consume an encrypted secret from the Zephr API.
 
     This operation is exactly-once: the server permanently destroys the record
@@ -171,7 +176,8 @@ def fetch_secret(
         api_key: Optional Bearer token for authenticated requests.
 
     Returns:
-        The encrypted blob string (base64url).
+        Dict with ``encrypted_blob`` (str), ``purge_at`` (str or None),
+        and ``hint`` (str or None).
 
     Raises:
         ApiError: 404 (not found), 410 (consumed or expired), 429 (rate limited).
@@ -222,7 +228,13 @@ def fetch_secret(
                     "Invalid server response: malformed encrypted blob."
                 )
 
-            return encrypted_blob
+            purge_at = result.get("purge_at")
+
+            return {
+                "encrypted_blob": encrypted_blob,
+                "purge_at": str(purge_at) if purge_at is not None else None,
+                "hint": result.get("hint"),
+            }
 
     except urllib.error.HTTPError as exc:
         status = exc.code

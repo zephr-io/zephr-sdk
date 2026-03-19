@@ -34,20 +34,29 @@ npx zephr "my-secret"
 # Global install
 npm install -g zephr
 
-# SDK for Node.js 20+ and browser bundles
+# SDK for Node.js 22+ and browser bundles
 npm install zephr
 ```
 
 ## CLI
 
 ```bash
-zephr <secret> [options]
-echo "secret" | zephr [options]
+zephr <secret> [options]              # Create a one-time secret
+echo "secret" | zephr [options]       # Create from stdin
+zephr retrieve <link> [options]       # Retrieve and decrypt
 
-Options:
-  -e, --expiry <hours>   Expiration: 1, 24, 168, or 720 (default: 1; 24h+ requires a free account; 720 requires Dev/Pro)
+Create options:
+  -e, --expiry <minutes> Expiration in minutes: 5, 15, 30, 60, 1440, 10080, or 43200 (default: 60; sub-hour values (5, 15, 30) require Dev/Pro; all other values require a free account or higher)
   -s, --split            Return URL and key separately
+  -H, --hint <label>     Plaintext label for routing and audit logs (1-128 printable ASCII, not encrypted)
   -k, --api-key <key>    API key; takes precedence over ZEPHR_API_KEY env var
+
+Retrieve options:
+      --url <url>        Secret URL (split mode)
+      --key <key>        Encryption key (split mode)
+  -k, --api-key <key>    API key
+
+General:
   -v, --version          Show version
   -h, --help             Show help
 ```
@@ -56,10 +65,13 @@ Options:
 
 ```bash
 # Pass a credential to a downstream process
-echo "$DB_PASSWORD" | zephr --expiry 1
+echo "$DB_PASSWORD" | zephr --expiry 60
 
 # Split mode: URL and key through separate channels
 zephr "$API_KEY" --split
+
+# Attach a plaintext label for routing and audit logs
+zephr "$API_KEY" --hint STRIPE_KEY_PROD
 
 # From password manager
 pass show production/db | zephr
@@ -68,12 +80,34 @@ pass show production/db | zephr
 cat ~/.ssh/id_rsa.pub | zephr
 
 # Authenticated: higher limits and longer expiry
-zephr "$API_KEY" --expiry 168 --api-key zeph_...
-ZEPHR_API_KEY=zeph_... zephr "$API_KEY" --expiry 168
+zephr "$API_KEY" --expiry 10080 --api-key zeph_...
+ZEPHR_API_KEY=zeph_... zephr "$API_KEY" --expiry 10080
 
 # Dev/Pro: 30-day expiry
-zephr "$API_KEY" --expiry 720 --api-key zeph_...
+zephr "$API_KEY" --expiry 43200 --api-key zeph_...
 ```
+
+### Retrieve
+
+```bash
+# Standard mode — pass the full link
+zephr retrieve "https://zephr.io/secret/abc123#v1.key..."
+
+# Split mode — URL and key separately
+zephr retrieve --url "https://zephr.io/secret/abc123" --key "v1.key..."
+
+# From stdin (e.g. piped from another command)
+echo "https://zephr.io/secret/abc123#v1.key..." | zephr retrieve
+```
+
+The decrypted secret is written to **stdout** (pipeable). If the secret has a hint, it is written to **stderr**:
+
+```
+Hint: STRIPE_KEY_PROD          ← stderr (metadata)
+sk-live-abc123                 ← stdout (data)
+```
+
+This means `zephr retrieve <link> | pbcopy` copies only the plaintext.
 
 ### Output
 
@@ -104,12 +138,12 @@ Expires in 1 hour. One-time access only.
 
 The CLI and SDK work without an account. No setup required. **Free, Dev, and Pro tier features require an API key.** Pass it via `--api-key` or the `ZEPHR_API_KEY` environment variable. Anonymous requests are capped at 3/day per IP with a 1 h max expiry.
 
-| Tier | Create limit | Max expiry | Max size | Authentication |
-|------|-------------|------------|----------|----------------|
-| Anonymous | 3/day | 1 h | 6 KB | None |
-| Free | 50/month | 7 days | 20 KB | `--api-key zeph_...` |
-| Dev ($15/mo) | 2,000/month | 30 days | 200 KB | `--api-key zeph_...` |
-| Pro ($39/mo) | 50,000/month | 30 days | 1 MB | `--api-key zeph_...` |
+| Tier | Create limit | Expiry options | Max size | Authentication |
+|------|-------------|----------------|----------|----------------|
+| Anonymous | 3/day | 1h | 6 KB | None |
+| Free | 50/month | 1h, 24h, 7d, 30d | 20 KB | `--api-key zeph_...` |
+| Dev ($15/mo) | 2,000/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 200 KB | `--api-key zeph_...` |
+| Pro ($39/mo) | 50,000/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 1 MB | `--api-key zeph_...` |
 
 **Getting an API key:** Log in at [zephr.io/account](https://zephr.io/account), open the API Keys tab, and create a key. The raw key is shown exactly once. Copy it immediately.
 
@@ -133,7 +167,7 @@ env:
   ZEPHR_API_KEY: ${{ secrets.ZEPHR_API_KEY }}
 
 steps:
-  - run: echo "$SECRET" | zephr --expiry 1
+  - run: echo "$SECRET" | zephr --expiry 60
     env:
       SECRET: ${{ secrets.MY_SECRET }}
 ```
@@ -142,31 +176,36 @@ The key is sent as `Authorization: Bearer zeph_...` on each request. An invalid 
 
 ## JavaScript / TypeScript SDK
 
-Isomorphic: works in Node.js 20+ and any browser bundle. TypeScript declarations included. Zero external dependencies.
+Isomorphic: works in Node.js 22+ and any browser bundle. TypeScript declarations included. Zero external dependencies.
 
 ```js
 import { createSecret, retrieveSecret } from 'zephr';
+
+// Named expiry constants for readability (raw integers also accepted)
+import { EXPIRY } from 'zephr/limits.js';
+// EXPIRY.MINUTES_5, EXPIRY.MINUTES_15, EXPIRY.MINUTES_30,
+// EXPIRY.HOURS_1, EXPIRY.HOURS_24, EXPIRY.DAYS_7, EXPIRY.DAYS_30
 ```
 
 Agent A encrypts and hands off the link. Agent B retrieves it exactly once:
 
 ```js
 // Agent A: encrypt and dispatch
-const { fullLink } = await createSecret('sk-live-abc123', { expiry: 1 });
+const { fullLink } = await createSecret('sk-live-abc123', { expiry: 60 });
 agentB.dispatch({ credential: fullLink });
 
 // Agent B: consumed atomically on first read
-const secret = await retrieveSecret(fullLink);
+const { plaintext } = await retrieveSecret(fullLink);
 ```
 
 Split mode: URL and key through separate channels:
 
 ```js
-const { url, key } = await createSecret('db-password', { split: true, expiry: 1 });
+const { url, key } = await createSecret('db-password', { split: true, expiry: 60 });
 agentB.dispatch({ credentialUrl: url });
 sideChannel.send(key); // key never shares a channel with the URL
 
-const secret = await retrieveSecret({ url, key });
+const { plaintext } = await retrieveSecret({ url, key });
 ```
 
 ### Return value
@@ -194,19 +233,19 @@ Split mode (`split: true`):
 }
 ```
 
-`retrieveSecret()` resolves to the decrypted plaintext string.
+`retrieveSecret()` resolves to a `RetrievalResult` object with properties `plaintext` (string), `hint` (string or undefined), and `purgeAt` (string or undefined).
 
 Authenticated use: pass your API key for higher limits and longer expiry:
 
 ```js
-// Free: 50/mo, 7d max; Dev: 2,000/mo, 30d max; Pro: 50,000/mo, 30d max
+// Free: 50/mo, 30d max; Dev: 2,000/mo, 30d max; Pro: 50,000/mo, 30d max
 const { fullLink } = await createSecret('sk-live-abc123', {
-  expiry: 168,                            // up to 720 on Dev/Pro
+  expiry: 10080,                          // up to 43200 on Dev/Pro
   apiKey: process.env.ZEPHR_API_KEY,      // 'zeph_...'
 });
 
 // apiKey is optional on retrieve; include it to count against your authenticated quota
-const secret = await retrieveSecret(fullLink, {
+const { plaintext } = await retrieveSecret(fullLink, {
   apiKey: process.env.ZEPHR_API_KEY,
 });
 ```
@@ -244,7 +283,7 @@ Common `ApiError` codes:
 | Code | Status | Meaning |
 |------|--------|---------|
 | `INVALID_API_KEY` | 401 | Key not found or revoked |
-| `UPGRADE_REQUIRED` | 403 | Feature requires a higher tier (e.g. expiry > 1h without an account, or 720h without Dev/Pro) |
+| `UPGRADE_REQUIRED` | 403 | Feature requires a higher tier (e.g. expiry > 60 min without an account, or sub-hour expiry (5, 15, 30 min) without Dev/Pro) |
 | `ANON_RATE_LIMIT_EXCEEDED` | 429 | Anonymous daily limit reached (3/day per IP) |
 | `MONTHLY_LIMIT_EXCEEDED` | 429 | Monthly create limit reached for this API key |
 | `PAYLOAD_TOO_LARGE` | 413 | Encrypted blob exceeds the tier blob ceiling |
@@ -261,7 +300,7 @@ Common `ApiError` codes:
 
 ## Requirements
 
-Node.js 20.0.0 or higher
+Node.js 22.0.0 or higher
 
 ## License
 

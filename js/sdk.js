@@ -14,23 +14,23 @@
  *   const { fullLink } = await createSecret('my-api-key-abc');
  *
  *   // Retrieve on the other end
- *   const plaintext = await retrieveSecret(fullLink);
+ *   const { plaintext } = await retrieveSecret(fullLink);
  *
  *   // Split mode — URL and key delivered through separate channels
  *   const { url, key } = await createSecret('my-api-key-abc', {
- *     expiry: 1,
+ *     expiry: 60,
  *     split:  true,
  *   });
- *   const plaintext = await retrieveSecret({ url, key });
+ *   const { plaintext } = await retrieveSecret({ url, key });
  *
- * Works in browsers (via bundler) and Node.js 20+.
+ * Works in browsers (via bundler) and Node.js 22+.
  */
 
 import { ValidationError, EncryptionError, ApiError, NetworkError } from './errors.js';
 import { generateKey, buildKeyString, createEncryptedBlob, importKeyFromString, decryptBlob } from './sdk-crypto.js';
 import { uploadSecret, fetchSecret } from './sdk-api.js';
 import { generateLink } from './link.js';
-import { SECRET_MAX_BYTES, VALID_EXPIRY_HOURS } from './limits.js';
+import { SECRET_MAX_BYTES, VALID_EXPIRY } from './limits.js';
 
 // Re-export error classes so callers need only one import target.
 export { ZephrError, ValidationError, EncryptionError, ApiError, NetworkError } from './errors.js';
@@ -66,16 +66,17 @@ function validateInput(secret, options) {
     }
 
     const {
-        expiry = 1,
+        expiry = 60,
         split  = false,
         apiKey = null,
+        hint,
     } = options !== undefined && typeof options === 'object' && options !== null
         ? /** @type {Record<string, unknown>} */ (options)
         : {};
 
-    if (!VALID_EXPIRY_HOURS.has(expiry)) {
+    if (!VALID_EXPIRY.has(expiry)) {
         throw new ValidationError(
-            `expiry must be one of: ${[...VALID_EXPIRY_HOURS].join(', ')} hours (720 requires Dev/Pro).`,
+            `expiry must be one of: ${[...VALID_EXPIRY].join(', ')} (minutes). Sub-hour values require Dev/Pro.`,
         );
     }
 
@@ -87,10 +88,22 @@ function validateInput(secret, options) {
         throw new ValidationError('apiKey must be a string or null.');
     }
 
-    if (apiKey === null && expiry > 1) {
+    if (hint !== undefined) {
+        if (typeof hint !== 'string') {
+            throw new ValidationError('hint must be a string.');
+        }
+        if (hint.length === 0 || hint.length > 128) {
+            throw new ValidationError('hint must be 1-128 characters.');
+        }
+        if (!/^[\x20-\x7E]+$/.test(hint)) {
+            throw new ValidationError('hint must contain only printable ASCII characters.');
+        }
+    }
+
+    if (apiKey === null && expiry !== 60) {
         throw new ValidationError(
-            'Anonymous use is limited to 1h expiry — pass apiKey to unlock longer expiry ' +
-            '(free: up to 7 days, Dev/Pro: up to 30 days). Create a free account at https://zephr.io/account',
+            'Anonymous use is limited to 60-minute (1h) expiry — pass apiKey to unlock more options ' +
+            '(free: up to 30 days, Dev/Pro: adds sub-hour). Create a free account at https://zephr.io/account',
         );
     }
 
@@ -99,6 +112,7 @@ function validateInput(secret, options) {
         expiry: /** @type {number} */ (expiry),
         split:  /** @type {boolean} */ (split),
         apiKey: /** @type {string | null} */ (apiKey),
+        hint:   /** @type {string | undefined} */ (hint),
     };
 }
 
@@ -209,15 +223,19 @@ function parseRetrieveInput(input) {
  *   for multi-byte Unicode).
  *
  * @param {object}        [options]
- * @param {1|24|168|720}  [options.expiry=1]
- *   How long the secret remains available, in hours.  Defaults to 1.
- *   24h+ requires a free account; 720 (30 days) requires a Dev or Pro API key.
+ * @param {5|15|30|60|1440|10080|43200}  [options.expiry=60]
+ *   How long the secret remains available, in minutes.  Defaults to 60 (1 hour).
+ *   Sub-hour values (5, 15, 30) require a Dev or Pro API key.
  * @param {boolean}       [options.split=false]
  *   When true, returns the URL and key as separate fields so they can be
  *   delivered through independent channels.
  * @param {string | null} [options.apiKey=null]
  *   Bearer token for authenticated requests.  Pass null (default) for
  *   anonymous use within the free-tier limits.
+ * @param {string}        [options.hint]
+ *   Optional plaintext label (1-128 printable ASCII chars). Stored alongside
+ *   the ciphertext and returned on retrieval. Useful for agent routing,
+ *   audit logs, and dashboards. Treat as non-secret.
  *
  * @returns {Promise<import('./types.d.ts').SecretLink>}
  *
@@ -247,6 +265,7 @@ export async function createSecret(secret, options) {
             params.expiry,
             params.split,
             params.apiKey,
+            params.hint,
         );
 
         const link = generateLink(id, keyString, params.split);
@@ -308,7 +327,8 @@ export async function createSecret(secret, options) {
  *   Bearer token for authenticated requests.  Pass null (default) for
  *   anonymous use within the free-tier limits.
  *
- * @returns {Promise<string>}  The decrypted plaintext.
+ * @returns {Promise<import('./types.d.ts').RetrievalResult>}
+ *   Structured result containing the decrypted plaintext and server metadata.
  *
  * @throws {ValidationError}   Invalid link format or key string.
  * @throws {EncryptionError}   Key import or decryption failed.
@@ -329,10 +349,14 @@ export async function retrieveSecret(link, options) {
     }
 
     try {
-        const encryptedBlob = await fetchSecret(secretId, apiKey);
+        const response      = await fetchSecret(secretId, apiKey);
         const cryptoKey     = await importKeyFromString(keyString);
-        const plaintext     = await decryptBlob(encryptedBlob, cryptoKey);
-        return plaintext;
+        const plaintext     = await decryptBlob(response.encryptedBlob, cryptoKey);
+        return {
+            plaintext,
+            hint:    response.hint,
+            purgeAt: response.purgeAt,
+        };
     } catch (err) {
         // Re-throw typed SDK errors as-is; wrap unexpected errors.
         if (
