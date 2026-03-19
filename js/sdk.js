@@ -289,8 +289,8 @@ export async function createSecret(secret, options) {
             encryptedBlob,
             params.expiry,
             params.split,
-            params.apiKey,
             params.hint,
+            params.apiKey,
         );
 
         const link = generateLink(id, keyString, params.split);

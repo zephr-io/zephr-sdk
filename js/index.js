@@ -149,8 +149,8 @@ async function main() {
             encryptedBlob,
             config.expiry,
             config.split,
-            apiKey,
-            config.hint ?? undefined
+            config.hint ?? undefined,
+            apiKey
         );
 
         const linkData = generateLink(result.id, keyString, config.split);

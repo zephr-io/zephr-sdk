@@ -130,14 +130,14 @@ function throwNetworkError(err) {
  * @param {string}          encryptedBlob  Base64url-encoded encrypted JSON blob.
  * @param {number}          expiry         Expiry in minutes (must be in ALLOWED_EXPIRY).
  * @param {boolean}         splitUrlMode   Whether the caller intends to share URL and key separately.
- * @param {string | null}   [apiKey]       Optional Bearer token for authenticated requests.
  * @param {string}          [hint]         Optional plaintext label (non-secret, max 128 chars).
+ * @param {string | null}   [apiKey]       Optional Bearer token for authenticated requests.
  * @returns {Promise<{ id: string, expiresAt: string }>}
  * @throws {ApiError}        Server returned a non-201 response.
  * @throws {NetworkError}    Transport-level failure (timeout, DNS, TLS, etc.).
  * @throws {ValidationError} Server response failed structural validation.
  */
-export async function uploadSecret(encryptedBlob, expiry, splitUrlMode, apiKey = null, hint) {
+export async function uploadSecret(encryptedBlob, expiry, splitUrlMode, hint, apiKey = null) {
     const headers = /** @type {Record<string, string>} */ ({
         'Content-Type': 'application/json',
         'User-Agent':   `zephr-js/${SDK_VERSION}`,

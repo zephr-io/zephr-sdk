@@ -17,11 +17,11 @@ const API_URL = 'https://zephr.io/api/secrets';
  * @param {string} encryptedBlob - Base64url-encoded encrypted data
  * @param {number} expiry - Expiry in minutes (must be in ALLOWED_EXPIRY)
  * @param {boolean} splitUrlMode - Whether to use split URL mode
- * @param {string|null} [apiKey] - Optional API key for authenticated requests
  * @param {string} [hint] - Optional plaintext label (non-secret, max 128 chars)
+ * @param {string|null} [apiKey] - Optional API key for authenticated requests
  * @returns {Promise<{id: string, expires_at: string}>}
  */
-export async function uploadSecret(encryptedBlob, expiry, splitUrlMode, apiKey = null, hint) {
+export async function uploadSecret(encryptedBlob, expiry, splitUrlMode, hint, apiKey = null) {
     const url = new URL(API_URL);
     const payload = JSON.stringify({
         encrypted_blob: encryptedBlob,
