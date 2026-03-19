@@ -44,61 +44,86 @@ const SECRET_ID_RE_PATH = /\/secret\/([A-Za-z0-9_-]{22})(?![A-Za-z0-9_-])/;
 // ---------------------------------------------------------------------------
 
 /**
+ * Validate the secret string: type, non-empty, byte length.
  * @param {unknown} secret
- * @param {unknown} options
- * @returns {{ secret: string, expiry: number, split: boolean, apiKey: string | null }}
+ * @returns {string} The validated secret string
  * @throws {ValidationError}
  */
-function validateInput(secret, options) {
+function validateSecret(secret) {
     if (typeof secret !== 'string') {
         throw new ValidationError('secret must be a string.');
     }
-
     if (secret.trim().length === 0) {
         throw new ValidationError('secret must not be empty or consist of whitespace only.');
     }
-
     const byteLength = new TextEncoder().encode(secret).byteLength;
     if (byteLength > SECRET_MAX_BYTES) {
         throw new ValidationError(
             `secret exceeds the maximum size of ${SECRET_MAX_BYTES} bytes (encoded: ${byteLength} bytes).`,
         );
     }
+    return secret;
+}
 
-    const {
-        expiry = 60,
-        split  = false,
-        apiKey = null,
-        hint,
-    } = options !== undefined && typeof options === 'object' && options !== null
+/**
+ * Validate the optional hint: type, length, printable ASCII.
+ * @param {unknown} hint
+ * @throws {ValidationError}
+ */
+function validateHint(hint) {
+    if (hint === undefined) return;
+    if (typeof hint !== 'string') {
+        throw new ValidationError('hint must be a string.');
+    }
+    if (hint.length === 0 || hint.length > 128) {
+        throw new ValidationError('hint must be 1-128 characters.');
+    }
+    if (!/^[\x20-\x7E]+$/.test(hint)) {
+        throw new ValidationError('hint must contain only printable ASCII characters.');
+    }
+}
+
+/**
+ * Safely extract options with defaults from the unknown options parameter.
+ * @param {unknown} options
+ * @returns {{ expiry: unknown, split: unknown, apiKey: unknown, hint: unknown }}
+ */
+function extractOptions(options) {
+    const opts = options !== undefined && typeof options === 'object' && options !== null
         ? /** @type {Record<string, unknown>} */ (options)
         : {};
+    return {
+        expiry: opts.expiry ?? 60,
+        split:  opts.split ?? false,
+        apiKey: opts.apiKey ?? null,
+        hint:   opts.hint,
+    };
+}
+
+/**
+ * @param {unknown} secret
+ * @param {unknown} options
+ * @returns {{ secret: string, expiry: number, split: boolean, apiKey: string | null, hint: string | undefined }}
+ * @throws {ValidationError}
+ */
+function validateInput(secret, options) {
+    const validSecret = validateSecret(secret);
+
+    const { expiry, split, apiKey, hint } = extractOptions(options);
 
     if (!VALID_EXPIRY.has(expiry)) {
         throw new ValidationError(
             `expiry must be one of: ${[...VALID_EXPIRY].join(', ')} (minutes). Sub-hour values require Dev/Pro.`,
         );
     }
-
     if (typeof split !== 'boolean') {
         throw new ValidationError('split must be a boolean.');
     }
-
     if (apiKey !== null && typeof apiKey !== 'string') {
         throw new ValidationError('apiKey must be a string or null.');
     }
 
-    if (hint !== undefined) {
-        if (typeof hint !== 'string') {
-            throw new ValidationError('hint must be a string.');
-        }
-        if (hint.length === 0 || hint.length > 128) {
-            throw new ValidationError('hint must be 1-128 characters.');
-        }
-        if (!/^[\x20-\x7E]+$/.test(hint)) {
-            throw new ValidationError('hint must contain only printable ASCII characters.');
-        }
-    }
+    validateHint(hint);
 
     if (apiKey === null && expiry !== 60) {
         throw new ValidationError(
@@ -108,7 +133,7 @@ function validateInput(secret, options) {
     }
 
     return {
-        secret,
+        secret: validSecret,
         expiry: /** @type {number} */ (expiry),
         split:  /** @type {boolean} */ (split),
         apiKey: /** @type {string | null} */ (apiKey),

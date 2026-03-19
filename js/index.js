@@ -2,14 +2,14 @@
 
 /**
  * Zephr CLI - Command-line tool for secure one-time secret sharing
- * 
+ *
  * Architecture:
  * - crypto.js: Encryption logic (AES-GCM-256)
  * - api.js: HTTP communication with Zephr server
  * - link.js: URL generation
  * - cli.js: User interface (args, stdin, output)
  * - index.js: Orchestrator (this file)
- * 
+ *
  * Design principles:
  * - Single responsibility per module
  * - No dependencies (uses Node.js built-ins only)
@@ -24,73 +24,100 @@ import { parseArgs, readStdin, printHelp, printRetrieveHelp, printVersion, print
 import { retrieveSecret } from './sdk.js';
 import { SECRET_MAX_BYTES } from './limits.js';
 
-/**
- * Main execution flow
- */
+// ---------------------------------------------------------------------------
+// Helpers — extracted to keep main() linear and under Sonar's complexity cap.
+// ---------------------------------------------------------------------------
+
+/** Resolve API key: flag > env var > null. */
+function resolveApiKey(config) {
+    return config.apiKey ?? process.env.ZEPHR_API_KEY ?? null;
+}
+
+/** Handle --help and --version flags. Exits the process if either is set. */
+function handleInfoFlags(config) {
+    if (config.help) {
+        (config.mode === 'retrieve' ? printRetrieveHelp : printHelp)();
+        process.exit(0);
+    }
+    if (config.version) {
+        printVersion();
+        process.exit(0);
+    }
+}
+
+/** Resolve the link input for retrieve mode from config or stdin. */
+async function resolveRetrieveLink(config) {
+    if (config.link) return config.link;
+
+    if (config.retrieveUrl || config.retrieveKey) {
+        if (!config.retrieveUrl) throw new Error('--url is required when using --key (split mode).');
+        if (!config.retrieveKey) throw new Error('--key is required when using --url (split mode).');
+        return { url: config.retrieveUrl, key: config.retrieveKey };
+    }
+
+    if (!process.stdin.isTTY) return (await readStdin()).trim();
+
+    throw new Error(
+        'Provide a link to retrieve:\n' +
+        '  zephr retrieve "https://zephr.io/secret/...#v1..."\n' +
+        '  zephr retrieve --url "..." --key "v1..."\n' +
+        'Run "zephr retrieve --help" for usage.'
+    );
+}
+
+/** Execute the retrieve flow: fetch, decrypt, print. */
+async function runRetrieve(config, apiKey) {
+    const link = await resolveRetrieveLink(config);
+    const result = await retrieveSecret(link, { apiKey });
+    if (result.hint) process.stderr.write(`Hint: ${result.hint}\n`);
+    process.stdout.write(result.plaintext);
+    process.exit(0);
+}
+
+/** Read the secret text from config arg or stdin. */
+async function resolveSecretText(config) {
+    if (config.secret) return config.secret;
+
+    if (process.stdin.isTTY) {
+        process.stderr.write('Error: provide a secret as an argument or pipe via stdin.\n');
+        process.stderr.write('Run "zephr --help" for usage.\n');
+        process.exit(1);
+    }
+
+    return readStdin();
+}
+
+/** 3-pass memory overwrite matching browser MemoryUtils.overwriteBuffer. */
+function zeroBuffer(buf) {
+    if (!buf) return;
+    buf.fill(0x00);
+    buf.fill(0xFF);
+    buf.fill(0x00);
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
 async function main() {
     let secretBytes = null;
     let keyBytes = null;
     let exitCode = 0;
 
     try {
-        // Parse arguments
-        const args = process.argv.slice(2);
-        const config = parseArgs(args);
+        const config = parseArgs(process.argv.slice(2));
 
-        // Show help if requested (mode-aware)
-        if (config.help) {
-            if (config.mode === 'retrieve') {
-                printRetrieveHelp();
-            } else {
-                printHelp();
-            }
-            process.exit(0);
-        }
+        handleInfoFlags(config);
 
-        // Show version if requested
-        if (config.version) {
-            printVersion();
-            process.exit(0);
-        }
+        const apiKey = resolveApiKey(config);
 
-        // Resolve API key early: --api-key flag takes precedence over ZEPHR_API_KEY env var.
-        // Done before stdin/crypto so the expiry guard fires before any expensive work.
-        const apiKey = config.apiKey ?? process.env.ZEPHR_API_KEY ?? null;
-
-        // --- Retrieve mode ---
+        // Retrieve mode — separate flow, exits on success
         if (config.mode === 'retrieve') {
-            let link;
-
-            if (config.link) {
-                // Standard mode: full link as positional arg
-                link = config.link;
-            } else if (config.retrieveUrl || config.retrieveKey) {
-                // Split mode: both --url and --key are required together
-                if (!config.retrieveUrl) throw new Error('--url is required when using --key (split mode).');
-                if (!config.retrieveKey) throw new Error('--key is required when using --url (split mode).');
-                link = { url: config.retrieveUrl, key: config.retrieveKey };
-            } else if (!process.stdin.isTTY) {
-                // Read link from stdin (e.g., piped from another command)
-                link = (await readStdin()).trim();
-            } else {
-                throw new Error(
-                    'Provide a link to retrieve:\n' +
-                    '  zephr retrieve "https://zephr.io/secret/...#v1..."\n' +
-                    '  zephr retrieve --url "..." --key "v1..."\n' +
-                    'Run "zephr retrieve --help" for usage.'
-                );
-            }
-
-            const result = await retrieveSecret(link, { apiKey });
-            if (result.hint) {
-                process.stderr.write(`Hint: ${result.hint}\n`);
-            }
-            process.stdout.write(result.plaintext);
-            process.exit(0);
+            await runRetrieve(config, apiKey);
+            return; // unreachable (runRetrieve exits), but explicit for clarity
         }
 
         // Client-side enforcement: anonymous use is capped at 60 minutes (1h).
-        // The server enforces this too; this guard gives a clear error before any network call.
         if (apiKey === null && config.expiry !== 60) {
             throw new Error(
                 'Anonymous use is limited to 60-minute (1h) expiry.\n' +
@@ -101,42 +128,23 @@ async function main() {
             );
         }
 
-        // Get secret from args or stdin — validated but never trimmed or mutated.
-        let secretText;
-        if (config.secret) {
-            secretText = config.secret;
-        } else {
-            if (process.stdin.isTTY) {
-                process.stderr.write('Error: provide a secret as an argument or pipe via stdin.\n');
-                process.stderr.write('Run "zephr --help" for usage.\n');
-                process.exit(1);
-            }
-            secretText = await readStdin();
-        }
+        const secretText = await resolveSecretText(config);
 
         if (!secretText || secretText.trim().length === 0) {
             throw new Error('Secret must not be empty or consist only of whitespace.');
         }
 
-        // Encoding boundary: string → UTF-8 bytes
         secretBytes = new TextEncoder().encode(secretText);
 
-        // Byte-accurate size check — code-unit counting would pass CJK or other
-        // multi-byte scripts that exceed the server ceiling (e.g., 1,521 × 3-byte
-        // CJK chars = 2,048 code units but 4,563 UTF-8 bytes > 2,048-byte limit).
         if (secretBytes.byteLength > SECRET_MAX_BYTES) {
             throw new Error(`Secret too large (max ${SECRET_MAX_BYTES.toLocaleString()} bytes; input encodes to ${secretBytes.byteLength.toLocaleString()} bytes)`);
         }
 
-        // Generate encryption key
         const key = await generateKey();
         keyBytes = new Uint8Array(await exportKey(key));
         const keyString = createKeyString(keyBytes);
-
-        // Encrypt secret
         const encryptedBlob = await createEncryptedBlob(secretBytes, key);
 
-        // Upload to Zephr
         const result = await uploadSecret(
             encryptedBlob,
             config.expiry,
@@ -145,28 +153,15 @@ async function main() {
             config.hint ?? undefined
         );
 
-        // Generate shareable link
         const linkData = generateLink(result.id, keyString, config.split);
-
-        // Print success
         printSuccess(linkData, config.expiry);
 
     } catch (error) {
         printError(error);
         exitCode = 1;
     } finally {
-        // 3-pass memory overwrite matching browser MemoryUtils.overwriteBuffer
-        // Pattern: 0x00, 0xFF, 0x00 — best-effort in JS
-        if (secretBytes) {
-            secretBytes.fill(0);
-            secretBytes.fill(0xFF);
-            secretBytes.fill(0);
-        }
-        if (keyBytes) {
-            keyBytes.fill(0);
-            keyBytes.fill(0xFF);
-            keyBytes.fill(0);
-        }
+        zeroBuffer(secretBytes);
+        zeroBuffer(keyBytes);
     }
 
     process.exit(exitCode);
