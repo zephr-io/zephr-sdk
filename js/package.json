@@ -7,6 +7,9 @@
     ".": {
       "import": "./sdk.js",
       "types": "./types.d.ts"
+    },
+    "./limits.js": {
+      "import": "./limits.js"
     }
   },
   "types": "./types.d.ts",
