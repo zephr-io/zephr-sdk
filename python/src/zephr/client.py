@@ -65,7 +65,7 @@ def _is_private_host(hostname: str) -> bool:
     bare = lower.strip("[]")
     if bare in ("::1", "::"):                 # loopback + unspecified
         return True
-    if re.match(r"^fe[89abcdef]", bare):       # fe80::/10 link-local + fec0::/10 site-local
+    if re.match(r"^fe[89a-f]", bare):           # fe80::/10 link-local + fec0::/10 site-local
         return True
     if bare.startswith("fc") or bare.startswith("fd"):  # fc00::/7
         return True
