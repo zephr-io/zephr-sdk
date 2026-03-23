@@ -241,6 +241,13 @@ function validateInput(secret, options) {
         );
     }
 
+    if (callbackUrl !== undefined && apiKey === null) {
+        throw new ValidationError(
+            'Webhook callbacks require authentication — pass apiKey to use callbackUrl. ' +
+            'Create a free account at https://zephr.io/account',
+        );
+    }
+
     return {
         secret:         validSecret,
         expiry:         /** @type {number} */ (expiry),

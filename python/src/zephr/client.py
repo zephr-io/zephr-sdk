@@ -183,12 +183,19 @@ def create_secret(
         if len(callback_url) > 2048:
             raise ValidationError("callback_url must not exceed 2,048 characters")
         parsed_cb = urllib.parse.urlparse(callback_url)
+        if not parsed_cb.hostname:
+            raise ValidationError("callback_url must include a hostname")
         if parsed_cb.scheme != "https":
             raise ValidationError("callback_url must use HTTPS")
         if _is_private_host(parsed_cb.hostname or ""):
             raise ValidationError("callback_url must not point to a private or reserved address")
         if callback_secret is None:
             raise ValidationError("callback_secret is required when callback_url is provided")
+        if api_key is None:
+            raise ValidationError(
+                "Webhook callbacks require authentication — pass api_key to use callback_url. "
+                "Create a free account at https://zephr.io/account"
+            )
 
     if callback_secret is not None:
         if callback_url is None:

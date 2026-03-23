@@ -128,6 +128,16 @@ async function main() {
             );
         }
 
+        // Client-side enforcement: webhook callbacks require authentication.
+        if (apiKey === null && config.callbackUrl) {
+            throw new Error(
+                'Webhook callbacks require authentication.\n' +
+                'Pass an API key to use --callback-url:\n' +
+                '  zephr "secret" --callback-url https://... --callback-secret ... --api-key zeph_...\n' +
+                'Create a free account at https://zephr.io/account'
+            );
+        }
+
         const secretText = await resolveSecretText(config);
 
         if (!secretText || secretText.trim().length === 0) {
