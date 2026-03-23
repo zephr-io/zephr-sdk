@@ -159,6 +159,9 @@ def create_secret(
     if isinstance(expiry, bool) or not isinstance(expiry, int) or expiry not in _VALID_EXPIRY_MINUTES:
         raise ValidationError("expiry must be 5, 15, 30, 60, 1440, 10080, or 43200 (minutes)")
 
+    if isinstance(api_key, str) and not api_key.strip():
+        raise ValidationError("api_key must not be empty. Pass None for anonymous use.")
+
     if api_key is None and expiry != 60:
         raise ValidationError(
             "Anonymous use is limited to 60-minute expiry — pass api_key= to unlock other expiry values "
@@ -340,6 +343,9 @@ def retrieve_secret(
         )
         print(result["plaintext"])
     """
+    if isinstance(api_key, str) and not api_key.strip():
+        raise ValidationError("api_key must not be empty. Pass None for anonymous use.")
+
     secret_id, key_string = _parse_retrieve_input(link)
 
     response = fetch_secret(secret_id, api_key=api_key)

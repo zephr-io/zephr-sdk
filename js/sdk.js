@@ -217,6 +217,9 @@ function validateInput(secret, options) {
     if (apiKey !== null && typeof apiKey !== 'string') {
         throw new ValidationError('apiKey must be a string or null.');
     }
+    if (typeof apiKey === 'string' && apiKey.trim().length === 0) {
+        throw new ValidationError('apiKey must not be empty. Pass null for anonymous use.');
+    }
 
     validateHint(hint);
     validateCallbackUrl(callbackUrl);
@@ -513,6 +516,9 @@ export async function retrieveSecret(link, options) {
 
     if (apiKey !== null && typeof apiKey !== 'string') {
         throw new ValidationError('apiKey must be a string or null.');
+    }
+    if (typeof apiKey === 'string' && apiKey.trim().length === 0) {
+        throw new ValidationError('apiKey must not be empty. Pass null for anonymous use.');
     }
 
     try {

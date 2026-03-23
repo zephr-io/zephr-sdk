@@ -28,9 +28,10 @@ import { SECRET_MAX_BYTES } from './limits.js';
 // Helpers — extracted to keep main() linear and under Sonar's complexity cap.
 // ---------------------------------------------------------------------------
 
-/** Resolve API key: flag > env var > null. */
+/** Resolve API key: flag > env var > null. Treats empty strings as absent. */
 function resolveApiKey(config) {
-    return config.apiKey ?? process.env.ZEPHR_API_KEY ?? null;
+    const key = config.apiKey ?? process.env.ZEPHR_API_KEY ?? null;
+    return (typeof key === 'string' && key.trim().length === 0) ? null : key;
 }
 
 /** Handle --help and --version flags. Exits the process if either is set. */
