@@ -196,6 +196,24 @@ function validateCallbackSecret(callbackSecret, hasCallbackUrl) {
 }
 
 /**
+ * Validate the optional idempotency key: type, length, charset.
+ * @param {unknown} idempotencyKey
+ * @throws {ValidationError}
+ */
+function validateIdempotencyKey(idempotencyKey) {
+    if (idempotencyKey === undefined) return;
+    if (typeof idempotencyKey !== 'string') {
+        throw new ValidationError('idempotencyKey must be a string.');
+    }
+    if (idempotencyKey.length === 0 || idempotencyKey.length > 64) {
+        throw new ValidationError('idempotencyKey must be 1-64 characters.');
+    }
+    if (!/^[A-Za-z0-9-]+$/.test(idempotencyKey)) {
+        throw new ValidationError('idempotencyKey must contain only alphanumeric characters and hyphens.');
+    }
+}
+
+/**
  * @param {unknown} secret
  * @param {unknown} options
  * @returns {{ secret: string, expiry: number, split: boolean, apiKey: string | null, hint: string | undefined, callbackUrl: string | undefined, callbackSecret: string | undefined, idempotencyKey: string | undefined }}
@@ -224,18 +242,7 @@ function validateInput(secret, options) {
     validateHint(hint);
     validateCallbackUrl(callbackUrl);
     validateCallbackSecret(callbackSecret, callbackUrl !== undefined);
-
-    if (idempotencyKey !== undefined) {
-        if (typeof idempotencyKey !== 'string') {
-            throw new ValidationError('idempotencyKey must be a string.');
-        }
-        if (idempotencyKey.length === 0 || idempotencyKey.length > 64) {
-            throw new ValidationError('idempotencyKey must be 1-64 characters.');
-        }
-        if (!/^[A-Za-z0-9-]+$/.test(idempotencyKey)) {
-            throw new ValidationError('idempotencyKey must contain only alphanumeric characters and hyphens.');
-        }
-    }
+    validateIdempotencyKey(idempotencyKey);
 
     if (apiKey === null && expiry !== 60) {
         throw new ValidationError(
