@@ -130,6 +130,29 @@ function validateCallbackUrl(callbackUrl) {
     }
 }
 
+/** @param {string} ip  Dotted-decimal IPv4. @returns {boolean} */
+function isPrivateIPv4SDK(ip) {
+    const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(ip);
+    if (!m) return false;
+    const [, a, b] = m.map(Number);
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && (b === 0 || b === 168)) return true;
+    if (a === 198 && (b === 18 || b === 19)) return true;
+    return a >= 224;
+}
+
+/** @param {string} ip  Bare IPv6 (no brackets). @returns {boolean} */
+function isPrivateIPv6SDK(ip) {
+    if (ip === '::1' || ip === '::') return true;
+    if (/^fe[89a-f]/i.test(ip)) return true;
+    if (ip.startsWith('fc') || ip.startsWith('fd') || ip.startsWith('ff')) return true;
+    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(ip);
+    return mapped ? isPrivateIPv4SDK(mapped[1]) : false;
+}
+
 /**
  * Client-side private host precheck — no DNS resolution.
  * The server performs the authoritative DNS-level check at dispatch time.
@@ -142,37 +165,12 @@ function isPrivateHostSDK(hostname) {
     if (lower.endsWith('.local') || lower.endsWith('.internal') || lower.endsWith('.localhost')) return true;
     if (lower === 'metadata.google.internal') return true;
 
-    // Strip IPv6 brackets.
     const bare = lower.startsWith('[') && lower.endsWith(']') ? lower.slice(1, -1) : lower;
 
-    // Integer or hex IP representations — block outright.
+    // Non-standard integer/hex IP representations — block outright.
     if (/^\d+$/.test(bare) || /^0x[0-9a-f]+$/i.test(bare)) return true;
 
-    // Standard IPv4 private/reserved ranges.
-    const ipv4Match = bare.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-    if (ipv4Match) {
-        const [, a, b] = ipv4Match.map(Number);
-        if (a === 0 || a === 10 || a === 127) return true;          // 0/8, 10/8, 127/8
-        if (a === 100 && b >= 64 && b <= 127) return true;          // 100.64/10 CGNAT
-        if (a === 169 && b === 254) return true;                    // 169.254/16
-        if (a === 172 && b >= 16 && b <= 31) return true;           // 172.16/12
-        if (a === 192 && b === 0) return true;                      // 192.0.0/24
-        if (a === 192 && b === 168) return true;                    // 192.168/16
-        if (a === 198 && (b === 18 || b === 19)) return true;       // 198.18/15
-        if (a >= 224) return true;                                  // 224/4 + 240/4
-    }
-
-    // IPv6 private/reserved ranges.
-    if (bare === '::1' || bare === '::') return true;               // loopback + unspecified
-    if (/^fe[89abcdef]/i.test(bare)) return true;                    // fe80::/10 link-local + fec0::/10 site-local
-    if (bare.startsWith('fc') || bare.startsWith('fd')) return true; // fc00::/7 unique local
-    if (bare.startsWith('ff')) return true;                          // ff00::/8 multicast
-    if (/^::ffff:\d+\.\d+\.\d+\.\d+$/.test(bare)) {
-        const mapped = bare.replace('::ffff:', '');
-        return isPrivateHostSDK(mapped);
-    }
-
-    return false;
+    return isPrivateIPv4SDK(bare) || isPrivateIPv6SDK(bare);
 }
 
 /**

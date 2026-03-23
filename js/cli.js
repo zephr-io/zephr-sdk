@@ -61,6 +61,18 @@ export function parseArgs(args) {
 }
 
 /**
+ * Parse a flag that requires a value (e.g. --hint <label>).
+ * @param {string[]} args
+ * @param {number} i  Current index (pointing at the flag).
+ * @param {string} flagName  Flag name for error messages.
+ * @returns {{ value: string, nextIndex: number }}
+ */
+function parseValueFlag(args, i, flagName) {
+    if (i + 1 >= args.length) throw new Error(`${flagName} requires a value`);
+    return { value: args[i + 1], nextIndex: i + 1 };
+}
+
+/**
  * Parse arguments for the create subcommand (default mode).
  * @param {string[]} args
  * @returns {object}
@@ -94,14 +106,11 @@ function parseCreateArgs(args) {
         } else if (arg === '--api-key' || arg === '-k') {
             i = parseApiKeyFlag(args, i, config);
         } else if (arg === '--hint' || arg === '-H') {
-            if (i + 1 >= args.length) throw new Error('--hint requires a value');
-            config.hint = args[++i];
+            ({ value: config.hint, nextIndex: i } = parseValueFlag(args, i, '--hint'));
         } else if (arg === '--callback-url') {
-            if (i + 1 >= args.length) throw new Error('--callback-url requires a value');
-            config.callbackUrl = args[++i];
+            ({ value: config.callbackUrl, nextIndex: i } = parseValueFlag(args, i, '--callback-url'));
         } else if (arg === '--callback-secret') {
-            if (i + 1 >= args.length) throw new Error('--callback-secret requires a value');
-            config.callbackSecret = args[++i];
+            ({ value: config.callbackSecret, nextIndex: i } = parseValueFlag(args, i, '--callback-secret'));
         } else if (!arg.startsWith('-') && !config.secret) {
             config.secret = arg;
         }
