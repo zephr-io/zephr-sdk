@@ -23,6 +23,8 @@ Designed for zero-knowledge secret handoff between independent systems: AI agent
 - Minimal dependencies: only `cryptography` (audited, widely trusted)
 - Anonymous use: no account required, rate-limited per IP
 - API key support for higher limits and longer expiry
+- Webhook callbacks: HMAC-SHA256 signed events on secret consumption (`callback_url` + `callback_secret`)
+- Idempotency: auto-generated `Idempotency-Key` on every create for safe retries
 
 ## Installation
 

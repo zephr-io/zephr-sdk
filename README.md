@@ -31,6 +31,9 @@ Built for zero-knowledge secret handoff between independent systems: AI agents, 
 - One-time access: the record is permanently deleted after a single retrieval
 - Anonymous use: no account required, rate-limited per IP
 - API key support for higher limits and longer expiry
+- Webhook callbacks: HMAC-SHA256 signed events on secret consumption for async pipeline coordination
+- Idempotency: auto-generated `Idempotency-Key` on every create for safe retries
+- Framework examples: LangChain, Anthropic tool_use, CrewAI, OpenAI — see [examples/](https://github.com/zephr-io/zephr-sdk/tree/main/examples)
 
 ---
 

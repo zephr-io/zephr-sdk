@@ -6,6 +6,8 @@ Create a one-time secret link: encrypted on your device and self-destructing aft
 
 Designed for zero-knowledge secret handoff between independent systems: AI agents, CI/CD pipelines, GitHub Actions, and human operators.
 
+**New in Sprint 2:** Webhook callbacks (`--callback-url`) notify your pipeline when a secret is consumed. Idempotency keys are auto-generated on every create for safe retries. See [Webhook callback](#webhook-callback) and [Idempotency](#idempotency) below.
+
 ## How it works
 
 1. A 256-bit key is generated locally. It never reaches Zephr's servers.
@@ -24,6 +26,8 @@ Designed for zero-knowledge secret handoff between independent systems: AI agent
 - Pipe support: reads from stdin for scripting, CI pipelines, and agent environments
 - Anonymous use: no account required, rate-limited per IP
 - API key support for higher limits and longer expiry
+- Webhook callbacks: get notified when a secret is consumed (`callbackUrl` + `callbackSecret`)
+- Idempotency: auto-generated `Idempotency-Key` on every create for safe retries
 
 ## Installation
 
