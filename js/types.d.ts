@@ -49,6 +49,40 @@ export interface CreateSecretOptions {
      * the hint is visible to anyone with the secret ID.
      */
     hint?: string;
+
+    /**
+     * HTTPS URL to receive a signed webhook event when the secret is
+     * consumed (retrieved) or expires unread.  The event is POSTed as
+     * JSON with an `X-Zephr-Signature` header (HMAC-SHA256 hex digest).
+     * Requires `callbackSecret`.
+     */
+    callbackUrl?: string;
+
+    /**
+     * Signing secret for the webhook callback.  Used to compute the
+     * HMAC-SHA256 signature in the `X-Zephr-Signature` header.
+     * Required when `callbackUrl` is set.  Stored alongside the secret
+     * record and destroyed when the record is cleaned up (after
+     * consumption + grace period, or TTL expiry).
+     */
+    callbackSecret?: string;
+
+    /**
+     * Caller-generated idempotency key (1-64 alphanumeric + hyphens).
+     * When omitted, the SDK auto-generates a UUID per request — this
+     * protects against infrastructure-level replays (API Gateway, proxy
+     * retries) without any caller action.
+     *
+     * Pass your own key when you need application-level retry safety:
+     * if a `createSecret` call throws `NetworkError` and you retry with
+     * the same `idempotencyKey`, the server returns the cached response
+     * instead of creating a duplicate.  Keys are valid for 24 hours.
+     *
+     * Note: each `createSecret` call produces a unique ciphertext (new
+     * random IV), so the retry will send a different body.  The server
+     * matches on the idempotency key alone, not the body content.
+     */
+    idempotencyKey?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,7 +271,16 @@ export type ApiErrorCode =
     | 'MONTHLY_LIMIT_EXCEEDED'
     | 'SECRET_NOT_FOUND'
     | 'SECRET_EXPIRED'
-    | 'SECRET_ALREADY_CONSUMED';
+    | 'SECRET_ALREADY_CONSUMED'
+    | 'INVALID_CALLBACK_URL_TYPE'
+    | 'INVALID_CALLBACK_URL_FORMAT'
+    | 'INVALID_CALLBACK_URL_PROTOCOL'
+    | 'INVALID_CALLBACK_URL_LENGTH'
+    | 'MISSING_CALLBACK_SECRET'
+    | 'UNEXPECTED_CALLBACK_SECRET'
+    | 'INVALID_CALLBACK_SECRET_TYPE'
+    | 'INVALID_CALLBACK_SECRET_LENGTH'
+    | 'INVALID_IDEMPOTENCY_KEY';
 
 /**
  * Base class for all Zephr SDK errors.

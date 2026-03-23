@@ -86,30 +86,127 @@ function validateHint(hint) {
 /**
  * Safely extract options with defaults from the unknown options parameter.
  * @param {unknown} options
- * @returns {{ expiry: unknown, split: unknown, apiKey: unknown, hint: unknown }}
+ * @returns {{ expiry: unknown, split: unknown, apiKey: unknown, hint: unknown, callbackUrl: unknown, callbackSecret: unknown, idempotencyKey: unknown }}
  */
 function extractOptions(options) {
     const opts = options !== undefined && typeof options === 'object' && options !== null
         ? /** @type {Record<string, unknown>} */ (options)
         : {};
     return {
-        expiry: opts.expiry ?? 60,
-        split:  opts.split ?? false,
-        apiKey: opts.apiKey ?? null,
-        hint:   opts.hint,
+        expiry:         opts.expiry ?? 60,
+        split:          opts.split ?? false,
+        apiKey:         opts.apiKey ?? null,
+        hint:           opts.hint,
+        callbackUrl:    opts.callbackUrl,
+        callbackSecret: opts.callbackSecret,
+        idempotencyKey: opts.idempotencyKey,
     };
+}
+
+/**
+ * Validate callback_url: must be a string and HTTPS.
+ * @param {unknown} callbackUrl
+ * @throws {ValidationError}
+ */
+function validateCallbackUrl(callbackUrl) {
+    if (callbackUrl === undefined) return;
+    if (typeof callbackUrl !== 'string') {
+        throw new ValidationError('callbackUrl must be a string.');
+    }
+    if (callbackUrl.length > 2048) {
+        throw new ValidationError('callbackUrl must not exceed 2,048 characters.');
+    }
+    let parsed;
+    try {
+        parsed = new URL(callbackUrl);
+    } catch {
+        throw new ValidationError('callbackUrl must be a valid URL.');
+    }
+    if (parsed.protocol !== 'https:') {
+        throw new ValidationError('callbackUrl must use HTTPS.');
+    }
+    if (isPrivateHostSDK(parsed.hostname)) {
+        throw new ValidationError('callbackUrl must not point to a private or reserved address.');
+    }
+}
+
+/**
+ * Client-side private host precheck — no DNS resolution.
+ * The server performs the authoritative DNS-level check at dispatch time.
+ * @param {string} hostname
+ * @returns {boolean}
+ */
+function isPrivateHostSDK(hostname) {
+    const lower = hostname.toLowerCase();
+    if (lower === 'localhost' || lower === '0.0.0.0') return true;
+    if (lower.endsWith('.local') || lower.endsWith('.internal') || lower.endsWith('.localhost')) return true;
+    if (lower === 'metadata.google.internal') return true;
+
+    // Strip IPv6 brackets.
+    const bare = lower.startsWith('[') && lower.endsWith(']') ? lower.slice(1, -1) : lower;
+
+    // Integer or hex IP representations — block outright.
+    if (/^\d+$/.test(bare) || /^0x[0-9a-f]+$/i.test(bare)) return true;
+
+    // Standard IPv4 private/reserved ranges.
+    const ipv4Match = bare.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (ipv4Match) {
+        const [, a, b] = ipv4Match.map(Number);
+        if (a === 0 || a === 10 || a === 127) return true;          // 0/8, 10/8, 127/8
+        if (a === 100 && b >= 64 && b <= 127) return true;          // 100.64/10 CGNAT
+        if (a === 169 && b === 254) return true;                    // 169.254/16
+        if (a === 172 && b >= 16 && b <= 31) return true;           // 172.16/12
+        if (a === 192 && b === 0) return true;                      // 192.0.0/24
+        if (a === 192 && b === 168) return true;                    // 192.168/16
+        if (a === 198 && (b === 18 || b === 19)) return true;       // 198.18/15
+        if (a >= 224) return true;                                  // 224/4 + 240/4
+    }
+
+    // IPv6 private/reserved ranges.
+    if (bare === '::1' || bare === '::') return true;               // loopback + unspecified
+    if (/^fe[89abcdef]/i.test(bare)) return true;                    // fe80::/10 link-local + fec0::/10 site-local
+    if (bare.startsWith('fc') || bare.startsWith('fd')) return true; // fc00::/7 unique local
+    if (bare.startsWith('ff')) return true;                          // ff00::/8 multicast
+    if (/^::ffff:\d+\.\d+\.\d+\.\d+$/.test(bare)) {
+        const mapped = bare.replace('::ffff:', '');
+        return isPrivateHostSDK(mapped);
+    }
+
+    return false;
+}
+
+/**
+ * Validate callback_secret: required when callbackUrl is present, must be a non-empty string.
+ * @param {unknown} callbackSecret
+ * @param {boolean} hasCallbackUrl
+ * @throws {ValidationError}
+ */
+function validateCallbackSecret(callbackSecret, hasCallbackUrl) {
+    if (!hasCallbackUrl && callbackSecret === undefined) return;
+    if (hasCallbackUrl && callbackSecret === undefined) {
+        throw new ValidationError('callbackSecret is required when callbackUrl is provided.');
+    }
+    if (!hasCallbackUrl && callbackSecret !== undefined) {
+        throw new ValidationError('callbackSecret requires callbackUrl.');
+    }
+    if (typeof callbackSecret !== 'string' || callbackSecret.length === 0) {
+        throw new ValidationError('callbackSecret must be a non-empty string.');
+    }
+    if (callbackSecret.length > 256) {
+        throw new ValidationError('callbackSecret must not exceed 256 characters.');
+    }
 }
 
 /**
  * @param {unknown} secret
  * @param {unknown} options
- * @returns {{ secret: string, expiry: number, split: boolean, apiKey: string | null, hint: string | undefined }}
+ * @returns {{ secret: string, expiry: number, split: boolean, apiKey: string | null, hint: string | undefined, callbackUrl: string | undefined, callbackSecret: string | undefined, idempotencyKey: string | undefined }}
  * @throws {ValidationError}
  */
 function validateInput(secret, options) {
     const validSecret = validateSecret(secret);
 
-    const { expiry, split, apiKey, hint } = extractOptions(options);
+    const { expiry, split, apiKey, hint, callbackUrl, callbackSecret, idempotencyKey } = extractOptions(options);
 
     if (!VALID_EXPIRY.has(expiry)) {
         throw new ValidationError(
@@ -124,6 +221,20 @@ function validateInput(secret, options) {
     }
 
     validateHint(hint);
+    validateCallbackUrl(callbackUrl);
+    validateCallbackSecret(callbackSecret, callbackUrl !== undefined);
+
+    if (idempotencyKey !== undefined) {
+        if (typeof idempotencyKey !== 'string') {
+            throw new ValidationError('idempotencyKey must be a string.');
+        }
+        if (idempotencyKey.length === 0 || idempotencyKey.length > 64) {
+            throw new ValidationError('idempotencyKey must be 1-64 characters.');
+        }
+        if (!/^[A-Za-z0-9-]+$/.test(idempotencyKey)) {
+            throw new ValidationError('idempotencyKey must contain only alphanumeric characters and hyphens.');
+        }
+    }
 
     if (apiKey === null && expiry !== 60) {
         throw new ValidationError(
@@ -133,11 +244,14 @@ function validateInput(secret, options) {
     }
 
     return {
-        secret: validSecret,
-        expiry: /** @type {number} */ (expiry),
-        split:  /** @type {boolean} */ (split),
-        apiKey: /** @type {string | null} */ (apiKey),
-        hint:   /** @type {string | undefined} */ (hint),
+        secret:         validSecret,
+        expiry:         /** @type {number} */ (expiry),
+        split:          /** @type {boolean} */ (split),
+        apiKey:         /** @type {string | null} */ (apiKey),
+        hint:           /** @type {string | undefined} */ (hint),
+        callbackUrl:    /** @type {string | undefined} */ (callbackUrl),
+        callbackSecret: /** @type {string | undefined} */ (callbackSecret),
+        idempotencyKey: /** @type {string | undefined} */ (idempotencyKey),
     };
 }
 
@@ -261,6 +375,17 @@ function parseRetrieveInput(input) {
  *   Optional plaintext label (1-128 printable ASCII chars). Stored alongside
  *   the ciphertext and returned on retrieval. Useful for agent routing,
  *   audit logs, and dashboards. Treat as non-secret.
+ * @param {string}        [options.callbackUrl]
+ *   HTTPS URL to receive a signed webhook event when the secret is consumed.
+ *   The event is POSTed as JSON with an `X-Zephr-Signature` HMAC-SHA256 header.
+ *   Requires `callbackSecret`.  Max 2,048 characters.
+ * @param {string}        [options.callbackSecret]
+ *   HMAC-SHA256 signing secret for the webhook callback.  Required when
+ *   `callbackUrl` is set.  Max 256 characters.
+ * @param {string}        [options.idempotencyKey]
+ *   Caller-generated idempotency key (1-64 alphanumeric + hyphens).
+ *   When omitted, the SDK auto-generates a UUID per request.
+ *   Pass your own key for application-level retry safety.
  *
  * @returns {Promise<import('./types.d.ts').SecretLink>}
  *
@@ -285,12 +410,24 @@ export async function createSecret(secret, options) {
 
         const keyString     = buildKeyString(keyBytes);
         const encryptedBlob = await createEncryptedBlob(plaintextBytes, cryptoKey);
+
+        // Use caller-provided idempotency key, or auto-generate one.
+        // Auto-generation ensures retries are safe at the HTTP level without
+        // requiring the caller to think about it.  Advanced callers doing
+        // application-level retry can pass their own key.
+        const idempotencyKey = params.idempotencyKey ?? globalThis.crypto.randomUUID();
+
         const { id, expiresAt } = await uploadSecret(
             encryptedBlob,
             params.expiry,
             params.split,
             params.hint,
             params.apiKey,
+            {
+                callbackUrl:    params.callbackUrl,
+                callbackSecret: params.callbackSecret,
+                idempotencyKey,
+            },
         );
 
         const link = generateLink(id, keyString, params.split);

@@ -7,6 +7,7 @@ import json
 import re
 import socket
 import ssl
+import uuid
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -82,6 +83,9 @@ def upload_secret(
     api_key: str | None = None,
     *,
     hint: str | None = None,
+    callback_url: str | None = None,
+    callback_secret: str | None = None,
+    idempotency_key: str | None = None,
 ) -> dict:
     """Upload an encrypted secret to the Zephr API.
 
@@ -107,12 +111,20 @@ def upload_secret(
     }
     if hint:
         body["hint"] = hint
+    if callback_url:
+        body["callback_url"] = callback_url
+    if callback_secret:
+        body["callback_secret"] = callback_secret
     payload = json.dumps(body).encode("utf-8")
 
     headers = {
         "Content-Type": "application/json",
         "Content-Length": str(len(payload)),
         "User-Agent": f"zephr-python/{_SDK_VERSION}",
+        # Use caller-provided idempotency key, or auto-generate one.
+        # Auto-generation protects against infrastructure-level replays
+        # without caller effort.
+        "Idempotency-Key": idempotency_key if idempotency_key else str(uuid.uuid4()),
     }
     if api_key is not None:
         headers["Authorization"] = f"Bearer {api_key}"

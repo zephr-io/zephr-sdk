@@ -100,6 +100,36 @@ zephr "$API_KEY" --split
 zephr "$API_KEY" --expiry 10080 --api-key zeph_...
 ```
 
+### Webhook callback
+
+Get notified when a secret is consumed or expires — no polling needed:
+
+```js
+const { fullLink } = await createSecret('db-password', {
+  expiry: 60,
+  hint: 'DB_PASSWORD_PROD',
+  callbackUrl: 'https://my-orchestrator.example.com/zephr-events',
+  callbackSecret: 'my-hmac-signing-secret',
+  apiKey: process.env.ZEPHR_API_KEY,
+});
+```
+
+When the secret is retrieved, Zephr POSTs a signed event:
+```json
+{
+  "event": "secret.consumed",
+  "secretId": "Ht7kR2mNqP3wXvYz8aB4cD",
+  "occurredAt": "2026-03-22T14:32:00.000Z",
+  "hint": "DB_PASSWORD_PROD"
+}
+```
+
+Verify the `X-Zephr-Signature` header (HMAC-SHA256 hex digest of the body, signed with your `callbackSecret`). See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+
+### Idempotency
+
+The SDK auto-generates an `Idempotency-Key` on every create — retries are safe by default. If a request times out and the caller retries, the server returns the cached response without creating a duplicate secret.
+
 Full CLI and JavaScript SDK reference: [zephr.io/docs](https://zephr.io/docs)
 
 ---
@@ -140,6 +170,22 @@ side_channel.send(result["key"])  # key never shares a channel with the URL
 result = zephr.retrieve_secret({"url": result["url"], "key": result["key"]})
 plaintext = result["plaintext"]
 ```
+
+### Webhook callback (Python)
+
+```python
+result = zephr.create_secret("db-password",
+    expiry=60,
+    hint="DB_PASSWORD_PROD",
+    callback_url="https://my-orchestrator.example.com/zephr-events",
+    callback_secret="my-hmac-signing-secret",
+    api_key=os.environ.get("ZEPHR_API_KEY"),
+)
+```
+
+### Idempotency (Python)
+
+The Python SDK auto-generates an `Idempotency-Key` header on every create — retries are safe by default.
 
 Full Python SDK reference: [zephr.io/docs](https://zephr.io/docs)
 

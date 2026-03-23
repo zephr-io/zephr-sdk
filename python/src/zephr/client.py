@@ -24,6 +24,58 @@ from .exceptions import EncryptionError, ValidationError
 # Valid expiry options (minutes) — matches web app and CLI
 _VALID_EXPIRY_MINUTES = frozenset({5, 15, 30, 60, 1440, 10080, 43200})
 
+_BLOCKED_SUFFIXES = (".local", ".internal", ".localhost")
+_BLOCKED_HOSTS = frozenset({"localhost", "metadata.google.internal"})
+
+
+def _is_private_host(hostname: str) -> bool:
+    """Client-side private host precheck — no DNS resolution.
+
+    The server performs the authoritative DNS-level check at dispatch time.
+    """
+    lower = hostname.lower()
+    if lower in _BLOCKED_HOSTS:
+        return True
+    if any(lower.endswith(s) for s in _BLOCKED_SUFFIXES):
+        return True
+    # Integer or hex IP representations.
+    if re.fullmatch(r"\d+", lower) or re.fullmatch(r"0x[0-9a-f]+", lower, re.IGNORECASE):
+        return True
+    # IPv4 private/reserved ranges.
+    m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)\.(\d+)", lower)
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        if a in (0, 10, 127):
+            return True
+        if a == 100 and 64 <= b <= 127:       # 100.64/10 CGNAT
+            return True
+        if a == 169 and b == 254:
+            return True
+        if a == 172 and 16 <= b <= 31:
+            return True
+        if a == 192 and b == 0:               # 192.0.0/24
+            return True
+        if a == 192 and b == 168:
+            return True
+        if a == 198 and b in (18, 19):        # 198.18/15
+            return True
+        if a >= 224:                          # 224/4 + 240/4
+            return True
+    # IPv6 private/reserved ranges.
+    bare = lower.strip("[]")
+    if bare in ("::1", "::"):                 # loopback + unspecified
+        return True
+    if re.match(r"^fe[89abcdef]", bare):       # fe80::/10 link-local + fec0::/10 site-local
+        return True
+    if bare.startswith("fc") or bare.startswith("fd"):  # fc00::/7
+        return True
+    if bare.startswith("ff"):                 # ff00::/8 multicast
+        return True
+    mapped = re.fullmatch(r"::ffff:(\d+\.\d+\.\d+\.\d+)", bare)
+    if mapped:
+        return _is_private_host(mapped.group(1))
+    return False
+
 # Matches the secret ID segment in a URL path: /secret/<22-char base64url>
 _SECRET_ID_RE = re.compile(r"^/secret/([A-Za-z0-9_-]{22})(?:[/?#]|$)")
 
@@ -35,6 +87,9 @@ def create_secret(
     split: bool = False,
     hint: str | None = None,
     api_key: str | None = None,
+    callback_url: str | None = None,
+    callback_secret: str | None = None,
+    idempotency_key: str | None = None,
 ) -> dict:
     """Create an encrypted one-time secret on Zephr.
 
@@ -121,6 +176,36 @@ def create_secret(
         if not re.fullmatch(r"[\x20-\x7E]+", hint):
             raise ValidationError("hint must contain only printable ASCII characters")
 
+    # --- Callback validation ---
+    if callback_url is not None:
+        if not isinstance(callback_url, str):
+            raise ValidationError("callback_url must be a string")
+        if len(callback_url) > 2048:
+            raise ValidationError("callback_url must not exceed 2,048 characters")
+        parsed_cb = urllib.parse.urlparse(callback_url)
+        if parsed_cb.scheme != "https":
+            raise ValidationError("callback_url must use HTTPS")
+        if _is_private_host(parsed_cb.hostname or ""):
+            raise ValidationError("callback_url must not point to a private or reserved address")
+        if callback_secret is None:
+            raise ValidationError("callback_secret is required when callback_url is provided")
+
+    if callback_secret is not None:
+        if callback_url is None:
+            raise ValidationError("callback_secret requires callback_url")
+        if not isinstance(callback_secret, str):
+            raise ValidationError("callback_secret must be a string")
+        if len(callback_secret) < 1 or len(callback_secret) > 256:
+            raise ValidationError("callback_secret must be 1-256 characters")
+
+    if idempotency_key is not None:
+        if not isinstance(idempotency_key, str):
+            raise ValidationError("idempotency_key must be a string")
+        if len(idempotency_key) < 1 or len(idempotency_key) > 64:
+            raise ValidationError("idempotency_key must be 1-64 characters")
+        if not re.fullmatch(r"[A-Za-z0-9-]+", idempotency_key):
+            raise ValidationError("idempotency_key must contain only alphanumeric characters and hyphens")
+
     # --- Encoding boundary: str -> UTF-8 bytes ---
     secret_bytes = bytearray(secret.encode("utf-8"))
     key_bytes = None
@@ -134,7 +219,11 @@ def create_secret(
         encrypted_blob = encrypt(bytes(secret_bytes), bytes(key_bytes))
 
         # Upload
-        result = upload_secret(encrypted_blob, expiry, split, api_key, hint=hint)
+        result = upload_secret(
+            encrypted_blob, expiry, split, api_key,
+            hint=hint, callback_url=callback_url, callback_secret=callback_secret,
+            idempotency_key=idempotency_key,
+        )
 
         # Generate link
         link_data = generate_link(result["id"], key_string, split)

@@ -1,4 +1,5 @@
 import https from 'node:https';
+import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { SECRET_ID_RE } from './limits.js';
 
@@ -19,15 +20,20 @@ const API_URL = 'https://zephr.io/api/secrets';
  * @param {boolean} splitUrlMode - Whether to use split URL mode
  * @param {string} [hint] - Optional plaintext label (non-secret, max 128 chars)
  * @param {string|null} [apiKey] - Optional API key for authenticated requests
+ * @param {object} [extra] - Additional optional fields
+ * @param {string} [extra.callbackUrl] - HTTPS webhook URL for lifecycle events
+ * @param {string} [extra.callbackSecret] - HMAC-SHA256 signing secret for the webhook
  * @returns {Promise<{id: string, expires_at: string}>}
  */
-export async function uploadSecret(encryptedBlob, expiry, splitUrlMode, hint, apiKey = null) {
+export async function uploadSecret(encryptedBlob, expiry, splitUrlMode, hint, apiKey = null, extra = {}) {
     const url = new URL(API_URL);
     const payload = JSON.stringify({
         encrypted_blob: encryptedBlob,
         expiry,
         split_url_mode: splitUrlMode,
         ...(hint && { hint }),
+        ...(extra.callbackUrl && { callback_url: extra.callbackUrl }),
+        ...(extra.callbackSecret && { callback_secret: extra.callbackSecret }),
     });
 
     return new Promise((resolve, reject) => {
@@ -37,6 +43,10 @@ export async function uploadSecret(encryptedBlob, expiry, splitUrlMode, hint, ap
             'User-Agent': `zephr-cli/${CLI_VERSION}`,
         };
         if (apiKey !== null) headers['Authorization'] = `Bearer ${apiKey}`;
+
+        // Auto-generate idempotency key for every create — protects against
+        // infrastructure-level replays (API Gateway, proxy retries).
+        headers['Idempotency-Key'] = crypto.randomUUID();
 
         const options = {
             hostname: url.hostname,

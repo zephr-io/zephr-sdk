@@ -132,12 +132,16 @@ function throwNetworkError(err) {
  * @param {boolean}         splitUrlMode   Whether the caller intends to share URL and key separately.
  * @param {string}          [hint]         Optional plaintext label (non-secret, max 128 chars).
  * @param {string | null}   [apiKey]       Optional Bearer token for authenticated requests.
+ * @param {object}          [extra]        Additional optional fields.
+ * @param {string}          [extra.callbackUrl]     HTTPS webhook URL for lifecycle events.
+ * @param {string}          [extra.callbackSecret]  HMAC-SHA256 signing secret for the webhook.
+ * @param {string}          [extra.idempotencyKey]  Client-generated idempotency key.
  * @returns {Promise<{ id: string, expiresAt: string }>}
  * @throws {ApiError}        Server returned a non-201 response.
  * @throws {NetworkError}    Transport-level failure (timeout, DNS, TLS, etc.).
  * @throws {ValidationError} Server response failed structural validation.
  */
-export async function uploadSecret(encryptedBlob, expiry, splitUrlMode, hint, apiKey = null) {
+export async function uploadSecret(encryptedBlob, expiry, splitUrlMode, hint, apiKey = null, extra = {}) {
     const headers = /** @type {Record<string, string>} */ ({
         'Content-Type': 'application/json',
         'User-Agent':   `zephr-js/${SDK_VERSION}`,
@@ -147,11 +151,17 @@ export async function uploadSecret(encryptedBlob, expiry, splitUrlMode, hint, ap
         headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
+    if (extra.idempotencyKey) {
+        headers['Idempotency-Key'] = extra.idempotencyKey;
+    }
+
     const body = JSON.stringify({
         encrypted_blob: encryptedBlob,
         expiry,
         split_url_mode: splitUrlMode,
         ...(hint && { hint }),
+        ...(extra.callbackUrl && { callback_url: extra.callbackUrl }),
+        ...(extra.callbackSecret && { callback_secret: extra.callbackSecret }),
     });
 
     let response;

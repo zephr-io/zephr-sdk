@@ -73,6 +73,8 @@ function parseCreateArgs(args) {
         split: false,
         apiKey: null,
         hint: null,
+        callbackUrl: null,
+        callbackSecret: null,
         help: false,
         version: false
     };
@@ -94,6 +96,12 @@ function parseCreateArgs(args) {
         } else if (arg === '--hint' || arg === '-H') {
             if (i + 1 >= args.length) throw new Error('--hint requires a value');
             config.hint = args[++i];
+        } else if (arg === '--callback-url') {
+            if (i + 1 >= args.length) throw new Error('--callback-url requires a value');
+            config.callbackUrl = args[++i];
+        } else if (arg === '--callback-secret') {
+            if (i + 1 >= args.length) throw new Error('--callback-secret requires a value');
+            config.callbackSecret = args[++i];
         } else if (!arg.startsWith('-') && !config.secret) {
             config.secret = arg;
         }
@@ -196,6 +204,8 @@ OPTIONS (create):
   -H, --hint <label>     Plaintext label (e.g. "STRIPE_KEY_PROD"), max 128 chars
   -s, --split            Split URL and key for separate transmission
   -k, --api-key <key>    Authenticate with a Zephr API key (overrides ZEPHR_API_KEY)
+  --callback-url <url>   HTTPS webhook URL — receive a signed event on consumption
+  --callback-secret <s>  HMAC-SHA256 signing secret for the webhook (required with --callback-url)
 
 OPTIONS (retrieve):
   --url <url>            Secret URL (split mode)

@@ -120,6 +120,26 @@ Split mode:
 
 `retrieve_secret()` returns a dict with keys `plaintext` (str), `hint` (str or None), and `purge_at` (str or None).
 
+## Webhook callback
+
+Get notified when a secret is consumed or expires — no polling needed:
+
+```python
+result = zephr.create_secret("db-password",
+    expiry=60,
+    hint="DB_PASSWORD_PROD",
+    callback_url="https://my-orchestrator.example.com/zephr-events",
+    callback_secret="my-hmac-signing-secret",
+    api_key=os.environ.get("ZEPHR_API_KEY"),
+)
+```
+
+When the secret is retrieved, Zephr POSTs a signed JSON event to the callback URL with an `X-Zephr-Signature` header (HMAC-SHA256 hex digest of the body, signed with your `callback_secret`). See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+
+## Idempotency
+
+The SDK auto-generates an `Idempotency-Key` header on every create. If a request times out at the infrastructure level and is replayed, the server returns the cached response without creating a duplicate secret.
+
 ## Authentication
 
 The SDK works without an account. No setup required. **Free, Dev, and Pro tier features require an API key.** Pass it via the `api_key` parameter. Anonymous requests are capped at 3/day per IP with a 1 h max expiry.

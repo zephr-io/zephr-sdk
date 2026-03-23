@@ -49,6 +49,8 @@ Create options:
   -e, --expiry <minutes> Expiration in minutes: 5, 15, 30, 60, 1440, 10080, or 43200 (default: 60; sub-hour values (5, 15, 30) require Dev/Pro; all other values require a free account or higher)
   -s, --split            Return URL and key separately
   -H, --hint <label>     Plaintext label for routing and audit logs (1-128 printable ASCII, not encrypted)
+  --callback-url <url>   HTTPS webhook URL — receive a signed event on consumption
+  --callback-secret <s>  HMAC-SHA256 signing secret for the webhook (required with --callback-url)
   -k, --api-key <key>    API key; takes precedence over ZEPHR_API_KEY env var
 
 Retrieve options:
@@ -85,7 +87,15 @@ ZEPHR_API_KEY=zeph_... zephr "$API_KEY" --expiry 10080
 
 # Dev/Pro: 30-day expiry
 zephr "$API_KEY" --expiry 43200 --api-key zeph_...
+
+# Webhook callback — get notified when the secret is consumed
+zephr "$API_KEY" --callback-url https://my-server.example.com/zephr-events \
+  --callback-secret my-hmac-secret --api-key zeph_...
 ```
+
+### Idempotency
+
+The CLI auto-generates an `Idempotency-Key` header on every create. If a request times out at the infrastructure level and is replayed, the server returns the cached response without creating a duplicate secret.
 
 ### Retrieve
 
@@ -256,6 +266,26 @@ In GitHub Actions, expose the repository secret as an environment variable and `
 env:
   ZEPHR_API_KEY: ${{ secrets.ZEPHR_API_KEY }}
 ```
+
+### Webhook callback
+
+Get notified when a secret is consumed or expires — no polling needed:
+
+```js
+const { fullLink } = await createSecret('db-password', {
+  expiry: 60,
+  hint: 'DB_PASSWORD_PROD',
+  callbackUrl: 'https://my-orchestrator.example.com/zephr-events',
+  callbackSecret: 'my-hmac-signing-secret',
+  apiKey: process.env.ZEPHR_API_KEY,
+});
+```
+
+When the secret is retrieved, Zephr POSTs a signed event to your callback URL with an `X-Zephr-Signature` header (HMAC-SHA256 hex digest). Verify the signature against your `callbackSecret`. See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+
+### Idempotency
+
+The SDK auto-generates an `Idempotency-Key` on every create — retries are safe by default. If a request times out and the caller retries, the server returns the cached response without creating a duplicate.
 
 Full SDK reference at [zephr.io/docs](https://zephr.io/docs#js-sdk).
 

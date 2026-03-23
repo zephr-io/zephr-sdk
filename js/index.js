@@ -150,7 +150,11 @@ async function main() {
             config.expiry,
             config.split,
             config.hint ?? undefined,
-            apiKey
+            apiKey,
+            {
+                callbackUrl: config.callbackUrl ?? undefined,
+                callbackSecret: config.callbackSecret ?? undefined,
+            },
         );
 
         const linkData = generateLink(result.id, keyString, config.split);
