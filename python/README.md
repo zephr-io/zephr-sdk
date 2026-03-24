@@ -21,7 +21,6 @@ Designed for zero-knowledge secret handoff between independent systems: AI agent
 - Local encryption: AES-GCM-256 on your device before any network call
 - One-time access: record marked consumed atomically on first retrieval
 - Minimal dependencies: only `cryptography` (audited, widely trusted)
-- Anonymous use: no account required, rate-limited per IP
 - API key support for higher limits and longer expiry
 - Webhook callbacks: HMAC-SHA256 signed events on secret consumption (`callback_url` + `callback_secret`)
 - Idempotency: auto-generated `Idempotency-Key` on every create for safe retries
@@ -136,11 +135,25 @@ result = zephr.create_secret("db-password",
 )
 ```
 
-When the secret is retrieved, Zephr POSTs a signed JSON event to the callback URL with an `X-Zephr-Signature` header (HMAC-SHA256 hex digest of the body, signed with your `callback_secret`). See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+When the secret is retrieved, Zephr POSTs a signed event:
+
+```json
+{
+  "event":      "secret.consumed",
+  "eventId":    "550e8400-e29b-41d4-a716-446655440000",
+  "secretId":   "Ht7kR2mNqP3wXvYz8aB4cD",
+  "occurredAt": "2026-03-22T14:32:00.000Z",
+  "hint":       "DB_PASSWORD_PROD"
+}
+```
+
+Verify the `X-Zephr-Signature` header (HMAC-SHA256 hex digest of the body, signed with your `callback_secret`). Webhook event fields use camelCase (`eventId`, `secretId`, `occurredAt`); REST API fields use snake_case. See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+
+Fire-and-forget in v1 — no retries. 5-second timeout. Redirects blocked.
 
 ## Idempotency
 
-The SDK auto-generates an `Idempotency-Key` header on every create. If a request times out at the infrastructure level and is replayed, the server returns the cached response without creating a duplicate secret.
+The SDK auto-generates an `Idempotency-Key` header on every create. If a request times out at the infrastructure level and is replayed, the server returns the cached response without creating a duplicate secret. Cache TTL: 24 hours.
 
 ## Authentication
 

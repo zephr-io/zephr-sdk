@@ -29,7 +29,6 @@ Built for zero-knowledge secret handoff between independent systems: AI agents, 
 - Zero-knowledge: the server never receives your plaintext or encryption keys
 - Local encryption: AES-GCM-256 on your device before any network call
 - One-time access: the record is permanently deleted after a single retrieval
-- Anonymous use: no account required, rate-limited per IP
 - API key support for higher limits and longer expiry
 - Webhook callbacks: HMAC-SHA256 signed events on secret consumption for async pipeline coordination
 - Idempotency: auto-generated `Idempotency-Key` on every create for safe retries
@@ -127,11 +126,13 @@ When the secret is retrieved, Zephr POSTs a signed event:
 }
 ```
 
-Verify the `X-Zephr-Signature` header (HMAC-SHA256 hex digest of the body, signed with your `callbackSecret`). See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+Verify the `X-Zephr-Signature` header (HMAC-SHA256 hex digest of the body, signed with your `callbackSecret`). Webhook event fields use camelCase (`eventId`, `secretId`, `occurredAt`); REST API fields use snake_case. See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+
+Fire-and-forget in v1 — no retries. 5-second timeout. Redirects blocked.
 
 ### Idempotency
 
-The SDK auto-generates an `Idempotency-Key` on every create — retries are safe by default. If a request times out and the caller retries, the server returns the cached response without creating a duplicate secret.
+The SDK auto-generates an `Idempotency-Key` on every create — retries are safe by default. If a request times out and the caller retries, the server returns the cached response without creating a duplicate secret. Cache TTL: 24 hours.
 
 Full CLI and JavaScript SDK reference: [zephr.io/docs](https://zephr.io/docs)
 
@@ -188,7 +189,7 @@ result = zephr.create_secret("db-password",
 
 ### Idempotency (Python)
 
-The Python SDK auto-generates an `Idempotency-Key` header on every create — retries are safe by default.
+The Python SDK auto-generates an `Idempotency-Key` header on every create — retries are safe by default. Cache TTL: 24 hours.
 
 Full Python SDK reference: [zephr.io/docs](https://zephr.io/docs)
 

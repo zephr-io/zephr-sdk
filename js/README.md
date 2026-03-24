@@ -23,8 +23,7 @@ Designed for zero-knowledge secret handoff between independent systems: AI agent
 - Local encryption: AES-GCM-256 on your device before any network call
 - One-time access: record marked consumed atomically on first retrieval
 - Zero external dependencies: built on Node.js built-ins and Web Crypto only
-- Pipe support: reads from stdin for scripting, CI pipelines, and agent environments
-- Anonymous use: no account required, rate-limited per IP
+- Pipe support: reads from stdin
 - API key support for higher limits and longer expiry
 - Webhook callbacks: get notified when a secret is consumed (`callbackUrl` + `callbackSecret`)
 - Idempotency: auto-generated `Idempotency-Key` on every create for safe retries
@@ -99,7 +98,7 @@ zephr "$API_KEY" --callback-url https://my-server.example.com/zephr-events \
 
 ### Idempotency
 
-The CLI auto-generates an `Idempotency-Key` header on every create. If a request times out at the infrastructure level and is replayed, the server returns the cached response without creating a duplicate secret.
+The CLI auto-generates an `Idempotency-Key` header on every create. If a request times out at the infrastructure level and is replayed, the server returns the cached response without creating a duplicate secret. Cache TTL: 24 hours.
 
 ### Retrieve
 
@@ -285,7 +284,21 @@ const { fullLink } = await createSecret('db-password', {
 });
 ```
 
-When the secret is retrieved, Zephr POSTs a signed event to your callback URL with an `X-Zephr-Signature` header (HMAC-SHA256 hex digest). Verify the signature against your `callbackSecret`. See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+When the secret is retrieved, Zephr POSTs a signed event:
+
+```json
+{
+  "event":      "secret.consumed",
+  "eventId":    "550e8400-e29b-41d4-a716-446655440000",
+  "secretId":   "Ht7kR2mNqP3wXvYz8aB4cD",
+  "occurredAt": "2026-03-22T14:32:00.000Z",
+  "hint":       "DB_PASSWORD_PROD"
+}
+```
+
+Verify the `X-Zephr-Signature` header (HMAC-SHA256 hex digest of the body, signed with your `callbackSecret`). Webhook event fields use camelCase (`eventId`, `secretId`, `occurredAt`); REST API fields use snake_case. See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+
+Fire-and-forget in v1 — no retries. 5-second timeout. Redirects blocked.
 
 ### Idempotency
 

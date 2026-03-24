@@ -1,6 +1,6 @@
 """Zephr — secure one-time secret sharing with zero-knowledge encryption."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from .client import create_secret, retrieve_secret
 from .exceptions import (
