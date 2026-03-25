@@ -288,15 +288,15 @@ When the secret is retrieved, Zephr POSTs a signed event:
 
 ```json
 {
-  "event":      "secret.consumed",
-  "eventId":    "550e8400-e29b-41d4-a716-446655440000",
-  "secretId":   "Ht7kR2mNqP3wXvYz8aB4cD",
-  "occurredAt": "2026-03-22T14:32:00.000Z",
-  "hint":       "DB_PASSWORD_PROD"
+  "event":       "secret.consumed",
+  "event_id":    "550e8400-e29b-41d4-a716-446655440000",
+  "secret_id":   "Ht7kR2mNqP3wXvYz8aB4cD",
+  "occurred_at": "2026-03-22T14:32:00.000Z",
+  "hint":        "DB_PASSWORD_PROD"
 }
 ```
 
-Verify the `X-Zephr-Signature` header (HMAC-SHA256 hex digest of the body, signed with your `callbackSecret`). Webhook event fields use camelCase (`eventId`, `secretId`, `occurredAt`); REST API fields use snake_case. See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+Verify the `X-Zephr-Signature` header (HMAC-SHA256 hex digest of the body, signed with your `callbackSecret`). See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
 
 Fire-and-forget in v1 — no retries. 5-second timeout. Redirects blocked.
 

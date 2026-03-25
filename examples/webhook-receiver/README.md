@@ -83,10 +83,11 @@ When someone retrieves the secret, your webhook server logs:
 
 ```json
 {
-  "event":      "secret.consumed",
-  "secretId":   "Ht7kR2mNqP3wXvYz8aB4cD",
-  "occurredAt": "2026-03-22T14:32:00.000Z",
-  "hint":       "STRIPE_KEY_PROD"
+  "event":       "secret.consumed",
+  "event_id":    "550e8400-e29b-41d4-a716-446655440000",
+  "secret_id":   "Ht7kR2mNqP3wXvYz8aB4cD",
+  "occurred_at": "2026-03-22T14:32:00.000Z",
+  "hint":        "STRIPE_KEY_PROD"
 }
 ```
 

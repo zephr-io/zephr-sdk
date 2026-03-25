@@ -66,10 +66,11 @@ def webhook():
     Payload shape::
 
         {
-            "event":      "secret.consumed",
-            "secretId":   "Ht7kR2mNqP3wXvYz8aB4cD",
-            "occurredAt": "2026-03-22T14:32:00.000Z",
-            "hint":       "STRIPE_KEY_PROD"          // present only if hint was set
+            "event":       "secret.consumed",
+            "event_id":    "550e8400-e29b-41d4-a716-446655440000",
+            "secret_id":   "Ht7kR2mNqP3wXvYz8aB4cD",
+            "occurred_at": "2026-03-22T14:32:00.000Z",
+            "hint":        "STRIPE_KEY_PROD"
         }
 
     Events:
@@ -95,15 +96,15 @@ def webhook():
 
     # Recommended: reject events older than 5 minutes to prevent replay attacks.
     # from datetime import datetime, timezone, timedelta
-    # occurred = datetime.fromisoformat(event["occurredAt"].replace("Z", "+00:00"))
+    # occurred = datetime.fromisoformat(event["occurred_at"].replace("Z", "+00:00"))
     # if datetime.now(timezone.utc) - occurred > timedelta(minutes=5):
     #     print(f"[WARN] Stale event — possible replay")
     #     return jsonify({"error": "Event too old"}), 401
 
-    # Use event["eventId"] (UUID) for deduplication — track seen IDs to reject replays.
+    # Use event["event_id"] (UUID) for deduplication — track seen IDs to reject replays.
 
     if event["event"] == "secret.consumed":
-        print(f"[OK] Secret {event['secretId']} was consumed at {event['occurredAt']}")
+        print(f"[OK] Secret {event['secret_id']} was consumed at {event['occurred_at']}")
         if event.get("hint"):
             print(f"     Hint: {event['hint']}")
         # --- Your pipeline logic here ---
@@ -111,7 +112,7 @@ def webhook():
         # notify the orchestrator, update a database record, etc.
 
     elif event["event"] == "secret.expired":
-        print(f"[WARN] Secret {event['secretId']} expired unread at {event['occurredAt']}")
+        print(f"[WARN] Secret {event['secret_id']} expired unread at {event['occurred_at']}")
         # --- Handle expiry (e.g., alert, retry, escalate) ---
 
     else:

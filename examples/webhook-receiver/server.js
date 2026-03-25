@@ -66,10 +66,11 @@ function verifySignature(body, signature) {
  *
  * Payload shape:
  *   {
- *     "event":      "secret.consumed",
- *     "secretId":   "Ht7kR2mNqP3wXvYz8aB4cD",
- *     "occurredAt": "2026-03-22T14:32:00.000Z",
- *     "hint":       "STRIPE_KEY_PROD"          // present only if hint was set
+ *     "event":       "secret.consumed",
+ *     "event_id":    "550e8400-e29b-41d4-a716-446655440000",
+ *     "secret_id":   "Ht7kR2mNqP3wXvYz8aB4cD",
+ *     "occurred_at": "2026-03-22T14:32:00.000Z",
+ *     "hint":        "STRIPE_KEY_PROD"          // present only if hint was set
  *   }
  *
  * Events:
@@ -95,20 +96,20 @@ app.post('/zephr-events', express.raw({ type: 'application/json' }), (req, res) 
     const event = JSON.parse(rawBody);
 
     // Recommended: reject events older than 5 minutes to prevent replay attacks.
-    // const age = Date.now() - new Date(event.occurredAt).getTime();
+    // const age = Date.now() - new Date(event.occurred_at).getTime();
     // if (age > 5 * 60 * 1000) {
     //     console.warn(`[WARN] Stale event (${Math.round(age/1000)}s old) — possible replay`);
     //     return res.status(401).json({ error: 'Event too old' });
     // }
 
-    // Use event.eventId (UUID) for deduplication — track seen IDs to reject replays.
-    // const seen = seenEventIds.has(event.eventId);
+    // Use event.event_id (UUID) for deduplication — track seen IDs to reject replays.
+    // const seen = seenEventIds.has(event.event_id);
     // if (seen) return res.status(200).json({ received: true, duplicate: true });
-    // seenEventIds.add(event.eventId);
+    // seenEventIds.add(event.event_id);
 
     switch (event.event) {
     case 'secret.consumed':
-        console.log(`[OK] Secret ${event.secretId} was consumed at ${event.occurredAt}`);
+        console.log(`[OK] Secret ${event.secret_id} was consumed at ${event.occurred_at}`);
         if (event.hint) console.log(`     Hint: ${event.hint}`);
         // --- Your pipeline logic here ---
         // e.g., mark the credential handoff as complete, advance the workflow,
@@ -116,7 +117,7 @@ app.post('/zephr-events', express.raw({ type: 'application/json' }), (req, res) 
         break;
 
     case 'secret.expired':
-        console.log(`[WARN] Secret ${event.secretId} expired unread at ${event.occurredAt}`);
+        console.log(`[WARN] Secret ${event.secret_id} expired unread at ${event.occurred_at}`);
         // --- Handle expiry (e.g., alert, retry, escalate) ---
         break;
 
