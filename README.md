@@ -104,7 +104,7 @@ zephr "$API_KEY" --expiry 10080 --api-key zeph_...
 
 ### Webhook callback
 
-Get notified when a secret is consumed or expires — no polling needed:
+Get notified when a secret is consumed — no polling needed:
 
 ```js
 const { fullLink } = await createSecret('db-password', {
@@ -127,7 +127,7 @@ When the secret is retrieved, Zephr POSTs a signed event:
 }
 ```
 
-Verify the `X-Zephr-Signature` header (HMAC-SHA256 hex digest of the body, signed with your `callbackSecret`). See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+Verify the `X-Zephr-Signature` header — HMAC-SHA256 hex digest of the raw JSON body, signed with your `callbackSecret`. Use timing-safe comparison (`crypto.timingSafeEqual` in Node.js, `hmac.compare_digest` in Python). See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
 
 Fire-and-forget in v1 — no retries. 5-second timeout. Redirects blocked.
 
@@ -154,26 +154,26 @@ import zephr
 
 # Agent A: encrypt and dispatch
 result = zephr.create_secret("sk-live-abc123", expiry=60)
-agent_b.dispatch({"credential": result["full_link"]})
+agent_b.dispatch({"credential": result.full_link})
 ```
 
 ### Retrieve a secret
 
 ```python
 # Agent B: retrieve once, then permanently deleted
-result = zephr.retrieve_secret(result["full_link"])
-plaintext = result["plaintext"]
+result = zephr.retrieve_secret(result.full_link)
+plaintext = result.plaintext
 ```
 
 ### Split mode: URL and key through separate channels
 
 ```python
 result = zephr.create_secret("db-password", split=True, expiry=60)
-agent_b.dispatch({"credential_url": result["url"]})
-side_channel.send(result["key"])  # key never shares a channel with the URL
+agent_b.dispatch({"credential_url": result.url})
+side_channel.send(result.key)  # key never shares a channel with the URL
 
-result = zephr.retrieve_secret({"url": result["url"], "key": result["key"]})
-plaintext = result["plaintext"]
+result = zephr.retrieve_secret({"url": result.url, "key": result.key})
+plaintext = result.plaintext
 ```
 
 ### Webhook callback (Python)
@@ -232,8 +232,8 @@ env:
 ## Source layout
 
 ```
-js/       CLI and JavaScript SDK (published to npm as `zephr`)
-python/   Python SDK (published to PyPI as `zephr`)
+cli/          CLI and JavaScript SDK (published to npm as `zephr`)
+sdk/python/   Python SDK (published to PyPI as `zephr`)
 ```
 
 This repository is automatically synced from the Zephr monorepo on every merge to `main`.
@@ -244,4 +244,4 @@ This repository is automatically synced from the Zephr monorepo on every merge t
 
 ## License
 
-MIT. See `js/LICENSE` and `python/LICENSE`.
+MIT. See `cli/LICENSE` and `sdk/python/LICENSE`.

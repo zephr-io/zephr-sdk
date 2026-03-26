@@ -67,11 +67,11 @@ def execute_tool(name: str, args: dict) -> str:
             if args.get(field):
                 kwargs[field] = args[field]
         result = zephr.create_secret(args["secret"], **kwargs)
-        return json.dumps({"link": result["full_link"], "expires_at": result["expires_at"]})
+        return json.dumps({"link": result.full_link, "expires_at": result.expires_at})
 
     if name == "zephr_retrieve_secret":
         result = zephr.retrieve_secret(args["link"], api_key=api_key)
-        return json.dumps({"plaintext": result["plaintext"], "hint": result.get("hint")})
+        return json.dumps({"plaintext": result.plaintext, "hint": result.hint})
 
     return json.dumps({"error": f"Unknown tool: {name}"})
 

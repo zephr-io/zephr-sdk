@@ -20,6 +20,7 @@ from .api import fetch_secret, upload_secret
 from .link import generate_link
 from .limits import SECRET_MAX_BYTES
 from .exceptions import EncryptionError, ValidationError
+from .types import SecretLink, RetrievalResult
 
 # Valid expiry options (minutes) — matches web app and CLI
 _VALID_EXPIRY_MINUTES = frozenset({5, 15, 30, 60, 1440, 10080, 43200})
@@ -90,7 +91,7 @@ def create_secret(
     callback_url: str | None = None,
     callback_secret: str | None = None,
     idempotency_key: str | None = None,
-) -> dict:
+) -> SecretLink:
     """Create an encrypted one-time secret on Zephr.
 
     This is the primary SDK entry point. It validates input, encrypts
@@ -111,11 +112,11 @@ def create_secret(
         api_key: Optional API key for authenticated requests.
 
     Returns:
-        Dict containing:
+        SecretLink dataclass with attributes:
             - mode: "standard" or "split"
-            - full_link: Complete shareable URL (standard mode only)
-            - url: Secret URL without key (split mode only)
-            - key: Encryption key string (split mode only)
+            - full_link: Complete shareable URL (standard mode only, None in split)
+            - url: Secret URL without key (split mode only, None in standard)
+            - key: Encryption key string (split mode only, None in standard)
             - expires_at: ISO 8601 expiration timestamp
             - secret_id: 22-character base64url secret identifier
 
@@ -137,11 +138,11 @@ def create_secret(
         import zephr
 
         result = zephr.create_secret("my-api-key", expiry=60)
-        print(result["full_link"])
+        print(result.full_link)
 
         result = zephr.create_secret("password", split=True)
-        print(result["url"])
-        print(result["key"])
+        print(result.url)
+        print(result.key)
     """
     # --- Validate input ---
     if not isinstance(secret, str):
@@ -237,10 +238,15 @@ def create_secret(
 
         # Generate link
         link_data = generate_link(result["id"], key_string, split)
-        link_data["expires_at"] = result["expires_at"]
-        link_data["secret_id"] = result["id"]
 
-        return link_data
+        return SecretLink(
+            mode=link_data["mode"],
+            full_link=link_data.get("full_link"),
+            url=link_data.get("url"),
+            key=link_data.get("key"),
+            expires_at=result["expires_at"],
+            secret_id=result["id"],
+        )
 
     finally:
         # 3-pass memory overwrite — best effort in Python
@@ -305,7 +311,7 @@ def retrieve_secret(
     link,
     *,
     api_key: str | None = None,
-) -> dict:
+) -> RetrievalResult:
     """Retrieve and decrypt a one-time secret from Zephr.
 
     This operation is exactly-once: the server permanently destroys the record
@@ -318,8 +324,8 @@ def retrieve_secret(
         api_key: Optional API key for authenticated requests.
 
     Returns:
-        Dict with ``plaintext`` (str), ``hint`` (str or None), and
-        ``purge_at`` (str or None).
+        RetrievalResult dataclass with ``plaintext`` (str), ``hint`` (str or None),
+        and ``purge_at`` (str or None).
 
     Raises:
         ValidationError: If the link format is invalid.
@@ -334,14 +340,14 @@ def retrieve_secret(
         result = zephr.retrieve_secret(
             "https://zephr.io/secret/abc123...#v1.key..."
         )
-        print(result["plaintext"])  # decrypted secret
-        print(result["hint"])       # plaintext label, or None
+        print(result.plaintext)  # decrypted secret
+        print(result.hint)       # plaintext label, or None
 
         # Split mode
         result = zephr.retrieve_secret(
             {"url": "https://zephr.io/secret/abc123...", "key": "v1.key..."}
         )
-        print(result["plaintext"])
+        print(result.plaintext)
     """
     if isinstance(api_key, str) and not api_key.strip():
         raise ValidationError("api_key must not be empty. Pass None for anonymous use.")
@@ -356,10 +362,10 @@ def retrieve_secret(
             plaintext = plaintext_bytes.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise EncryptionError("Decrypted content is not valid UTF-8.") from exc
-        return {
-            "plaintext": plaintext,
-            "hint": response.get("hint"),
-            "purge_at": response.get("purge_at"),
-        }
+        return RetrievalResult(
+            plaintext=plaintext,
+            hint=response.get("hint"),
+            purge_at=response.get("purge_at"),
+        )
     finally:
         zero_bytes(plaintext_bytes)

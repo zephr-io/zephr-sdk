@@ -57,7 +57,7 @@ class ZephrCreateSecretTool(BaseTool):
             kwargs["callback_secret"] = callback_secret
 
         result = zephr.create_secret(secret, **kwargs)
-        return f"Link: {result['full_link']}\nExpires: {result['expires_at']}"
+        return f"Link: {result.full_link}\nExpires: {result.expires_at}"
 
 
 class ZephrRetrieveSecretTool(BaseTool):
@@ -70,9 +70,9 @@ class ZephrRetrieveSecretTool(BaseTool):
 
     def _run(self, link: str) -> str:
         result = zephr.retrieve_secret(link, api_key=os.environ.get("ZEPHR_API_KEY"))
-        lines = [f"Plaintext: {result['plaintext']}"]
-        if result.get("hint"):
-            lines.append(f"Hint: {result['hint']}")
+        lines = [f"Plaintext: {result.plaintext}"]
+        if result.hint:
+            lines.append(f"Hint: {result.hint}")
         return "\n".join(lines)
 
 

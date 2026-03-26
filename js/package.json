@@ -25,10 +25,14 @@
     "api.js",
     "crypto.js",
     "cli.js",
+    "postinstall.js",
     "README.md"
   ],
   "bin": {
     "zephr": "./index.js"
+  },
+  "scripts": {
+    "postinstall": "node postinstall.js"
   },
   "keywords": [
     "zephr",

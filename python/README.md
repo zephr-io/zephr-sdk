@@ -25,6 +25,22 @@ Designed for zero-knowledge secret handoff between independent systems: AI agent
 - Webhook callbacks: HMAC-SHA256 signed events on secret consumption (`callback_url` + `callback_secret`)
 - Idempotency: auto-generated `Idempotency-Key` on every create for safe retries
 
+## Migrating to 0.5.0
+
+**Breaking change:** `create_secret()` and `retrieve_secret()` now return frozen dataclasses instead of dicts.
+
+```python
+# Before (0.4.x)
+result = zephr.create_secret("secret")
+print(result["full_link"])
+
+# After (0.5.0)
+result = zephr.create_secret("secret")
+print(result.full_link)  # IDE autocompletion, type safety, immutability
+```
+
+The migration is mechanical: replace `result["key"]` with `result.key` for all return value access.
+
 ## Installation
 
 ```bash
@@ -39,7 +55,7 @@ pip install zephr
 import zephr
 
 result = zephr.create_secret("my-api-key-12345")
-print(result["full_link"])
+print(result.full_link)
 # https://zephr.io/secret/abc123#v1.key...
 ```
 
@@ -50,11 +66,11 @@ Agent A encrypts and hands off the link. Agent B retrieves it exactly once:
 ```python
 # Agent A: encrypt and dispatch
 result = zephr.create_secret("sk-live-abc123", expiry=60, hint="STRIPE_KEY_PROD")
-agent_b.dispatch({"credential": result["full_link"]})
+agent_b.dispatch({"credential": result.full_link})
 
 # Agent B: consumed atomically on first read
-result = zephr.retrieve_secret(result["full_link"])
-plaintext = result["plaintext"]
+result = zephr.retrieve_secret(result.full_link)
+plaintext = result.plaintext
 ```
 
 ### Retrieve a secret
@@ -64,11 +80,11 @@ import zephr
 
 # Full URL string
 result = zephr.retrieve_secret("https://zephr.io/secret/abc123#v1.key...")
-plaintext = result["plaintext"]
+plaintext = result.plaintext
 
 # Split mode
 result = zephr.retrieve_secret({"url": "https://zephr.io/secret/abc123", "key": "v1.key..."})
-plaintext = result["plaintext"]
+plaintext = result.plaintext
 ```
 
 Retrieval is exactly-once. The server permanently destroys the record on first access.
@@ -90,40 +106,41 @@ result = zephr.create_secret("secret", hint="STRIPE_KEY_PROD")
 
 # Split URL and key for separate transmission
 result = zephr.create_secret("secret", split=True)
-print(result["url"])   # https://zephr.io/secret/abc123
-print(result["key"])   # v1.key...
+print(result.url)   # https://zephr.io/secret/abc123
+print(result.key)   # v1.key...
 ```
 
 ### Return value
 
-`create_secret()` returns a dict.
+`create_secret()` returns a frozen `SecretLink` dataclass.
 
 Standard mode:
 ```python
-{
-    "mode": "standard",
-    "full_link": "https://zephr.io/secret/abc123#v1.key...",
-    "expires_at": "2026-03-12T12:00:00.000Z",
-    "secret_id": "abc123...",               # 22-char base64url ID
-}
+result = zephr.create_secret("secret")
+result.mode        # "standard"
+result.full_link   # "https://zephr.io/secret/abc123#v1.key..."
+result.expires_at  # "2026-03-12T12:00:00.000Z"
+result.secret_id   # "abc123..." (22-char base64url ID)
+result.url         # None (standard mode)
+result.key         # None (standard mode)
 ```
 
 Split mode:
 ```python
-{
-    "mode": "split",
-    "url": "https://zephr.io/secret/abc123",
-    "key": "v1.key...",
-    "expires_at": "2026-03-12T12:00:00.000Z",
-    "secret_id": "abc123...",               # 22-char base64url ID
-}
+result = zephr.create_secret("secret", split=True)
+result.mode        # "split"
+result.url         # "https://zephr.io/secret/abc123"
+result.key         # "v1.key..."
+result.expires_at  # "2026-03-12T12:00:00.000Z"
+result.secret_id   # "abc123..." (22-char base64url ID)
+result.full_link   # None (split mode)
 ```
 
-`retrieve_secret()` returns a dict with keys `plaintext` (str), `hint` (str or None), and `purge_at` (str or None).
+`retrieve_secret()` returns a frozen `RetrievalResult` dataclass with `plaintext` (str), `hint` (str or None), and `purge_at` (str or None).
 
 ## Webhook callback
 
-Get notified when a secret is consumed or expires — no polling needed:
+Get notified when a secret is consumed — no polling needed:
 
 ```python
 result = zephr.create_secret("db-password",
@@ -147,7 +164,7 @@ When the secret is retrieved, Zephr POSTs a signed event:
 }
 ```
 
-Verify the `X-Zephr-Signature` header (HMAC-SHA256 hex digest of the body, signed with your `callback_secret`). See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+Verify the `X-Zephr-Signature` header — HMAC-SHA256 hex digest of the raw JSON body, signed with your `callback_secret`. Use timing-safe comparison (`hmac.compare_digest` in Python, `crypto.timingSafeEqual` in Node.js). See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
 
 Fire-and-forget in v1 — no retries. 5-second timeout. Redirects blocked.
 
@@ -200,7 +217,7 @@ result = zephr.create_secret(
     expiry=60,
     api_key=os.environ.get("ZEPHR_API_KEY"),
 )
-print(result["full_link"])
+print(result.full_link)
 ```
 
 The key is sent as `Authorization: Bearer zeph_...` on each request. An invalid or revoked key returns HTTP 401.

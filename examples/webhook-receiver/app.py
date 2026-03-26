@@ -18,7 +18,7 @@ and create a secret with the tunnel URL as the callback:
         callback_secret=os.environ['WEBHOOK_SECRET'],
         api_key=os.environ.get('ZEPHR_API_KEY'),
     )
-    print(result['full_link'])
+    print(result.full_link)
     "
 
 When the secret is retrieved, this server logs the event.

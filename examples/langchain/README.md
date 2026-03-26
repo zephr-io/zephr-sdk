@@ -23,7 +23,7 @@ tools = [ZephrCreateSecretTool(), ZephrRetrieveSecretTool()]
 llm_with_tools = llm.bind_tools(tools)
 
 response = llm_with_tools.invoke(
-    "Store the API key sk-test-abc123 as a one-time secret with hint OPENAI_KEY and 1-hour expiry."
+    "Share the API key sk-test-abc123 as a one-time secret with hint OPENAI_KEY and 1-hour expiry."
 )
 ```
 
@@ -31,7 +31,7 @@ response = llm_with_tools.invoke(
 
 ```python
 response = llm_with_tools.invoke(
-    "Store my database password 'pg-secret-xyz' with a 5-minute expiry, "
+    "Share my database password 'pg-secret-xyz' as a one-time secret with a 5-minute expiry, "
     "hint DB_PROD, and a webhook callback to https://my-orchestrator.example.com/events "
     "with signing secret 'my-hmac-secret'."
 )

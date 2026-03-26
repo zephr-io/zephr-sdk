@@ -4,6 +4,7 @@ Single responsibility: HTTP transport only.
 """
 
 import json
+import platform
 import re
 import socket
 import ssl
@@ -27,6 +28,19 @@ _MAX_RESPONSE_BYTES = 1_000_000  # 1MB response guard
 # 128-bit entropy (16 bytes) encoded as base64url without padding = exactly 22 chars.
 # Matches server/middleware/validation.js and server/utils/secureId.js guarantees.
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{22}$")
+
+
+def _format_network_error(exc: urllib.error.URLError) -> str:
+    """Return a helpful error message, with extra guidance for SSL cert failures on macOS."""
+    reason = exc.reason
+    if isinstance(reason, ssl.SSLCertVerificationError) and platform.system() == "Darwin":
+        return (
+            "SSL certificate verification failed. "
+            "On macOS, Python may not have root certificates installed. "
+            "Run: /Applications/Python\\ <version>/Install\\ Certificates.command "
+            "or: pip install certifi && export SSL_CERT_FILE=$(python -c 'import certifi; print(certifi.where())')"
+        )
+    return f"Network error: {reason}"
 
 
 def _extract_error_info(body: bytes) -> tuple[str | None, str | None]:
@@ -165,7 +179,7 @@ def upload_secret(
         ) from exc
 
     except urllib.error.URLError as exc:
-        raise NetworkError(f"Network error: {exc.reason}") from exc
+        raise NetworkError(_format_network_error(exc)) from exc
 
     except (TimeoutError, socket.timeout) as exc:
         raise NetworkError("Request timed out (10s)") from exc
@@ -258,7 +272,7 @@ def fetch_secret(
         ) from exc
 
     except urllib.error.URLError as exc:
-        raise NetworkError(f"Network error: {exc.reason}") from exc
+        raise NetworkError(_format_network_error(exc)) from exc
 
     except (TimeoutError, socket.timeout) as exc:
         raise NetworkError("Request timed out (10s)") from exc

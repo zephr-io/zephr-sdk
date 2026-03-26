@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "zephr"
-version = "0.4.1"
+version = "0.5.0"
 description = "Secure one-time secret sharing with zero-knowledge encryption"
 readme = "README.md"
 license = "MIT"

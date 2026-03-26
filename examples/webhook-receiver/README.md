@@ -51,13 +51,14 @@ zephr "my-secret" \
   --api-key zeph_...
 
 # Using the JS SDK
-node -e "
-  const { createSecret } = require('zephr');
-  createSecret('my-secret', {
+node --input-type=module -e "
+  import { createSecret } from 'zephr';
+  const r = await createSecret('my-secret', {
     callbackUrl: 'https://abc123.ngrok-free.app/zephr-events',
     callbackSecret: 'my-hmac-secret',
     apiKey: process.env.ZEPHR_API_KEY,
-  }).then(r => console.log(r.fullLink));
+  });
+  console.log(r.fullLink);
 "
 
 # Using the Python SDK
@@ -68,7 +69,7 @@ result = zephr.create_secret('my-secret',
     callback_secret='my-hmac-secret',
     api_key=os.environ.get('ZEPHR_API_KEY'),
 )
-print(result['full_link'])
+print(result.full_link)
 "
 ```
 
@@ -76,7 +77,7 @@ When someone retrieves the secret, your webhook server logs:
 
 ```
 [OK] Secret Ht7kR2mNqP3wXvYz8aB4cD was consumed at 2026-03-22T14:32:00.000Z
-     Hint: STRIPE_KEY_PROD
+     Hint: DB_PASSWORD_PROD
 ```
 
 ## Webhook payload
@@ -87,7 +88,7 @@ When someone retrieves the secret, your webhook server logs:
   "event_id":    "550e8400-e29b-41d4-a716-446655440000",
   "secret_id":   "Ht7kR2mNqP3wXvYz8aB4cD",
   "occurred_at": "2026-03-22T14:32:00.000Z",
-  "hint":        "STRIPE_KEY_PROD"
+  "hint":        "DB_PASSWORD_PROD"
 }
 ```
 

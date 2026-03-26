@@ -6,7 +6,7 @@ Create a one-time secret link: encrypted on your device and self-destructing aft
 
 Designed for zero-knowledge secret handoff between independent systems: AI agents, CI/CD pipelines, GitHub Actions, and human operators.
 
-**New in Sprint 2:** Webhook callbacks (`--callback-url`) notify your pipeline when a secret is consumed. Idempotency keys are auto-generated on every create for safe retries. See [Webhook callback](#webhook-callback) and [Idempotency](#idempotency) below.
+**New in v1.3:** Webhook callbacks (`--callback-url`) notify your pipeline when a secret is consumed. Idempotency keys are auto-generated on every create for safe retries. See [Webhook callback](#webhook-callback) and [Idempotency](#idempotency) below.
 
 ## How it works
 
@@ -272,7 +272,7 @@ env:
 
 ### Webhook callback
 
-Get notified when a secret is consumed or expires — no polling needed:
+Get notified when a secret is consumed — no polling needed:
 
 ```js
 const { fullLink } = await createSecret('db-password', {
@@ -296,7 +296,7 @@ When the secret is retrieved, Zephr POSTs a signed event:
 }
 ```
 
-Verify the `X-Zephr-Signature` header (HMAC-SHA256 hex digest of the body, signed with your `callbackSecret`). See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
+Verify the `X-Zephr-Signature` header — HMAC-SHA256 hex digest of the raw JSON body, signed with your `callbackSecret`. Use timing-safe comparison (`crypto.timingSafeEqual` in Node.js, `hmac.compare_digest` in Python). See [examples/webhook-receiver](https://github.com/zephr-io/zephr-sdk/tree/main/examples/webhook-receiver) for runnable Node.js and Python receivers.
 
 Fire-and-forget in v1 — no retries. 5-second timeout. Redirects blocked.
 
