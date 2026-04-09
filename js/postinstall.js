@@ -20,9 +20,11 @@ try {
 
     if (!pathDirs.includes(binDir)) {
         const shell = process.env.SHELL || '';
-        const rcFile = shell.includes('zsh') ? '~/.zshrc'
-            : shell.includes('bash') ? '~/.bashrc'
-                : '~/.profile';
+        const RC_FILES = [
+            ['zsh', '~/.zshrc'],
+            ['bash', '~/.bashrc'],
+        ];
+        const rcFile = RC_FILES.find(([sh]) => shell.includes(sh))?.[1] ?? '~/.profile';
 
         console.log('');
         console.log('\x1b[33m⚠  zephr was installed, but the npm bin directory is not in your PATH.\x1b[0m');
