@@ -53,7 +53,7 @@ export class ApiError extends ZephrError {
      * @param {string}        message
      * @param {number | null} statusCode  HTTP status code, or null if unavailable.
      * @param {string | null} code        Stable machine-readable error code from the
-     *                                    server (e.g. 'RATE_LIMIT_EXCEEDED'), or null.
+     *                                    server (e.g. 'ANON_RATE_LIMIT_EXCEEDED'), or null.
      */
     constructor(message, statusCode = null, code = null) {
         super(message);

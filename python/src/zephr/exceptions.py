@@ -19,7 +19,7 @@ class ApiError(ZephrError):
     Attributes:
         status_code: HTTP status code, or None if unavailable.
         code: Machine-readable error code from the server response body
-              (e.g. ``'RATE_LIMIT_EXCEEDED'``, ``'SECRET_ALREADY_CONSUMED'``),
+              (e.g. ``'ANON_RATE_LIMIT_EXCEEDED'``, ``'SECRET_ALREADY_CONSUMED'``),
               or None when the server did not return a structured error envelope.
     """
 

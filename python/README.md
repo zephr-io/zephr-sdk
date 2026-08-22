@@ -98,7 +98,7 @@ result = zephr.create_secret("secret", expiry=60)
 # Expire in 7 days
 result = zephr.create_secret("secret", expiry=10080)
 
-# Expire in 30 days (Dev/Pro)
+# Expire in 30 days (requires an api_key)
 result = zephr.create_secret("secret", expiry=43200, api_key="zeph_...")
 
 # Attach a plaintext label for routing and audit logs
@@ -136,7 +136,7 @@ result.secret_id   # "abc123..." (22-char base64url ID)
 result.full_link   # None (split mode)
 ```
 
-`retrieve_secret()` returns a frozen `RetrievalResult` dataclass with `plaintext` (str), `hint` (str or None), and `purge_at` (str or None).
+`retrieve_secret()` returns a frozen `RetrievalResult` dataclass with `plaintext` (str), `hint` (str or None), and `purge_at` (int or None) — a Unix timestamp in seconds.
 
 ## Webhook callback
 
@@ -174,14 +174,12 @@ The SDK auto-generates an `Idempotency-Key` header on every create. If a request
 
 ## Authentication
 
-The SDK works without an account. No setup required. **Free, Dev, and Pro tier features require an API key.** Pass it via the `api_key` parameter. Anonymous requests are capped at 3/day per IP with a 1 h max expiry.
+The SDK works without an account. No setup required. **Higher quotas and expiries beyond 1 hour require a free account.** Pass it via the `api_key` parameter. Anonymous requests are capped at 3/day per IP with a 1 h max expiry.
 
 | Tier | Create limit | Expiry options | Max size | Authentication |
 |------|-------------|----------------|----------|----------------|
-| Anonymous | 3/day | 1h | 6 KB | None |
-| Free | 50/month | 1h, 24h, 7d, 30d | 20 KB | `api_key="zeph_..."` |
-| Dev ($15/mo) | 2,000/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 200 KB | `api_key="zeph_..."` |
-| Pro ($39/mo) | 50,000/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 1 MB | `api_key="zeph_..."` |
+| Anonymous | 3/day | 5m, 15m, 30m, 1h | 6 KB | None |
+| Free | 500/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 20 KB | `api_key="zeph_..."` |
 
 **Getting an API key:** Log in at [zephr.io/account](https://zephr.io/account), open the API Keys tab, and create a key. The raw key is shown exactly once. Copy it immediately.
 
@@ -249,7 +247,7 @@ Common `ApiError` codes:
 | Code | Status | Meaning |
 |------|--------|---------|
 | `INVALID_API_KEY` | 401 | Key not found or revoked |
-| `UPGRADE_REQUIRED` | 403 | Feature requires a higher tier (e.g. expiry > 60 min without an account, or sub-hour expiry (5, 15, 30 min) without Dev/Pro) |
+| `UPGRADE_REQUIRED` | 403 | Not permitted for the caller's tier (e.g. any expiry other than 60 min without an account, or a webhook `callback_url` without an account) |
 | `ANON_RATE_LIMIT_EXCEEDED` | 429 | Anonymous daily limit reached (3/day per IP) |
 | `MONTHLY_LIMIT_EXCEEDED` | 429 | Monthly create limit reached for this API key |
 | `PAYLOAD_TOO_LARGE` | 413 | Encrypted blob exceeds the tier blob ceiling |

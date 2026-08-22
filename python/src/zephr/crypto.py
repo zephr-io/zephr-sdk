@@ -118,25 +118,16 @@ def encrypt(plaintext_bytes: bytes, key: bytes) -> str:
         raise EncryptionError(f"Encryption failed: {exc}") from exc
 
 
-def decrypt(encrypted_blob: str, key_string: str) -> bytes:
-    """Decrypt an AES-GCM-256 encrypted blob produced by Zephr.
+def decode_key_string(key_string: str) -> bytearray:
+    """Validate a versioned key string and return its raw key bytes.
 
-    Matches the wire format produced by encrypt() and the Zephr web/CLI clients:
-    ``base64url(JSON.stringify({iv: base64url, ciphertext: base64url}))``.
-
-    Args:
-        encrypted_blob: Base64url-encoded JSON blob in Zephr format.
-        key_string: Versioned key string (e.g., ``"v1.<base64url>"``).
-
-    Returns:
-        Decrypted plaintext as raw bytes. The caller is responsible for decoding
-        (e.g., ``.decode("utf-8")``) if a string is needed.
+    Full offline validation: format, supported version, payload length,
+    base64url decoding, and decoded byte length. Returns a mutable
+    bytearray so the caller can zero it after use.
 
     Raises:
-        EncryptionError: If the key format is invalid, the blob is malformed,
-                         or AES-GCM authentication / decryption fails.
+        EncryptionError: If the key string is malformed or unsupported.
     """
-    # --- Parse and validate key string ---
     match = _KEY_RE.match(key_string)
     if not match:
         raise EncryptionError("Invalid key string format.")
@@ -155,19 +146,53 @@ def decrypt(encrypted_blob: str, key_string: str) -> bytes:
             f"got {len(key_payload)}."
         )
 
-    key_bytes_raw = bytearray()
     try:
-        try:
-            key_bytes_raw = bytearray(_base64url_decode(key_payload))
-        except ValueError as exc:
-            raise EncryptionError("Invalid key encoding.") from exc
+        key_bytes = bytearray(_base64url_decode(key_payload))
+    except ValueError as exc:
+        raise EncryptionError("Invalid key encoding.") from exc
 
-        if len(key_bytes_raw) != _KEY_BYTES:
-            raise EncryptionError(
-                f"Invalid key length: expected {_KEY_BYTES} bytes, "
-                f"got {len(key_bytes_raw)}."
-            )
+    if len(key_bytes) != _KEY_BYTES:
+        zero_bytes(key_bytes)
+        raise EncryptionError(
+            f"Invalid key length: expected {_KEY_BYTES} bytes, "
+            f"got {len(key_bytes)}."
+        )
 
+    return key_bytes
+
+
+def validate_key_string(key_string: str) -> None:
+    """Validate a key string offline without retaining key material.
+
+    Used before the one-time fetch: a malformed key must fail while the
+    secret is still retrievable with a corrected link.
+
+    Raises:
+        EncryptionError: If the key string is malformed or unsupported.
+    """
+    zero_bytes(decode_key_string(key_string))
+
+
+def decrypt(encrypted_blob: str, key_string: str) -> bytes:
+    """Decrypt an AES-GCM-256 encrypted blob produced by Zephr.
+
+    Matches the wire format produced by encrypt() and the Zephr web/CLI clients:
+    ``base64url(JSON.stringify({iv: base64url, ciphertext: base64url}))``.
+
+    Args:
+        encrypted_blob: Base64url-encoded JSON blob in Zephr format.
+        key_string: Versioned key string (e.g., ``"v1.<base64url>"``).
+
+    Returns:
+        Decrypted plaintext as raw bytes. The caller is responsible for decoding
+        (e.g., ``.decode("utf-8")``) if a string is needed.
+
+    Raises:
+        EncryptionError: If the key format is invalid, the blob is malformed,
+                         or AES-GCM authentication / decryption fails.
+    """
+    key_bytes_raw = decode_key_string(key_string)
+    try:
         # --- Decode the outer base64url wrapper ---
         try:
             json_bytes = _base64url_decode(encrypted_blob)
@@ -187,6 +212,13 @@ def decrypt(encrypted_blob: str, key_string: str) -> bytes:
             ciphertext = _base64url_decode(blob_data["ciphertext"])
         except (ValueError, KeyError) as exc:
             raise EncryptionError("Invalid IV or ciphertext encoding.") from exc
+
+        # Explicit IV length check, matching the JS SDK: a clear error beats
+        # a library-dependent generic crypto failure.
+        if len(iv) != _IV_BYTES:
+            raise EncryptionError(
+                f"Invalid IV length: expected {_IV_BYTES} bytes, got {len(iv)}."
+            )
 
         # --- AES-GCM decrypt (auth tag is appended to ciphertext by AESGCM) ---
         try:

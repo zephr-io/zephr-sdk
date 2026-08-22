@@ -13,7 +13,7 @@
  *   - Map HTTP / transport errors to typed SDK errors, preserving server codes
  */
 
-import { createRequire } from 'node:module';
+import pkg from './package.json' with { type: 'json' };
 import { ApiError, NetworkError, ValidationError } from './errors.js';
 import { SECRET_ID_RE } from './limits.js';
 
@@ -21,10 +21,10 @@ const API_BASE           = 'https://zephr.io/api/secrets';
 const TIMEOUT_MS         = 10_000;
 const MAX_RESPONSE_BYTES = 1_000_000;  // 1 MB
 
-// Read SDK version from package.json automatically so it never drifts.
-// createRequire works in Node.js 20+; browser bundlers (webpack/rollup/esbuild)
-// inline the require('./package.json') call and strip the node:module import.
-const SDK_VERSION = createRequire(import.meta.url)('./package.json').version;
+// Version comes from package.json via a JSON import attribute so it never
+// drifts. Native in Node 22+ and handled by esbuild/webpack/rollup/vite —
+// no Node-only imports, so the module stays bundleable for browsers.
+const SDK_VERSION = pkg.version;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -211,7 +211,7 @@ export async function uploadSecret(encryptedBlob, expiry, splitUrlMode, hint, ap
  *
  * @param {string}        secretId  22-character base64url secret identifier.
  * @param {string | null} [apiKey]  Optional Bearer token for authenticated requests.
- * @returns {Promise<{ encryptedBlob: string, purgeAt: string | undefined, hint: string | undefined }>}
+ * @returns {Promise<{ encryptedBlob: string, purgeAt: number | undefined, hint: string | undefined }>}
  * @throws {ApiError}        404 (not found / expired), 410 (consumed), 429 (rate limited).
  * @throws {NetworkError}    Transport-level failure.
  * @throws {ValidationError} Server response failed structural validation.
@@ -268,7 +268,8 @@ export async function fetchSecret(secretId, apiKey = null) {
 
     return {
         encryptedBlob: encrypted_blob,
-        purgeAt: typeof purge_at === 'string' || typeof purge_at === 'number' ? String(purge_at) : undefined,
+        // Unix seconds — the wire value is numeric; do not stringify.
+        purgeAt: typeof purge_at === 'number' && Number.isFinite(purge_at) ? purge_at : undefined,
         hint: typeof hint === 'string' ? hint : undefined,
     };
 }

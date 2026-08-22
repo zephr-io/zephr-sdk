@@ -25,6 +25,19 @@ _API_URL = "https://zephr.io/api/secrets"
 _TIMEOUT_SECONDS = 10
 _MAX_RESPONSE_BYTES = 1_000_000  # 1MB response guard
 
+
+def _read_capped(resp) -> bytes:
+    """Read a response body, rejecting anything over the 1 MB cap.
+
+    Reads one byte past the cap so an oversized body is detected and
+    refused (matching the JS SDK) rather than silently truncated into a
+    confusing JSON parse error.
+    """
+    data = resp.read(_MAX_RESPONSE_BYTES + 1)
+    if len(data) > _MAX_RESPONSE_BYTES:
+        raise NetworkError("Server response exceeds the 1 MB size limit.")
+    return data
+
 # 128-bit entropy (16 bytes) encoded as base64url without padding = exactly 22 chars.
 # Matches server/middleware/validation.js and server/utils/secureId.js guarantees.
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{22}$")
@@ -106,7 +119,8 @@ def upload_secret(
     Args:
         encrypted_blob: Base64url-encoded encrypted JSON blob.
         expiry: Minutes until expiration. Accepted values: 5, 15, 30, 60, 1440, 10080, or 43200.
-            Sub-hour values (5, 15, 30) require a Dev or Pro API key. All other values require a free account or higher.
+            Anonymous callers may use up to 60; every longer value requires an api_key
+            from any account. The server is authoritative on per-tier policy.
         split_url_mode: Whether to use split URL mode.
         api_key: Optional Bearer token for authenticated requests.
 
@@ -157,7 +171,7 @@ def upload_secret(
         with urllib.request.urlopen(
             req, timeout=_TIMEOUT_SECONDS, context=context
         ) as resp:
-            data = resp.read(_MAX_RESPONSE_BYTES)
+            data = _read_capped(resp)
 
             if resp.status != 201:
                 raise ApiError(
@@ -185,7 +199,7 @@ def upload_secret(
         raise NetworkError("Request timed out (10s)") from exc
 
     except json.JSONDecodeError as exc:
-        raise ApiError("Invalid JSON response from server") from exc
+        raise ValidationError("Invalid server response: body is not valid JSON.") from exc
 
 
 def fetch_secret(
@@ -202,7 +216,7 @@ def fetch_secret(
         api_key: Optional Bearer token for authenticated requests.
 
     Returns:
-        Dict with ``encrypted_blob`` (str), ``purge_at`` (str or None),
+        Dict with ``encrypted_blob`` (str), ``purge_at`` (int or None),
         and ``hint`` (str or None).
 
     Raises:
@@ -231,7 +245,7 @@ def fetch_secret(
         with urllib.request.urlopen(
             req, timeout=_TIMEOUT_SECONDS, context=context
         ) as resp:
-            data = resp.read(_MAX_RESPONSE_BYTES)
+            data = _read_capped(resp)
 
             if resp.status != 200:
                 message, code = _extract_error_info(data)
@@ -258,7 +272,10 @@ def fetch_secret(
 
             return {
                 "encrypted_blob": encrypted_blob,
-                "purge_at": str(purge_at) if purge_at is not None else None,
+                # Unix seconds — the wire value is numeric; do not stringify.
+                "purge_at": purge_at
+                if isinstance(purge_at, int) and not isinstance(purge_at, bool)
+                else None,
                 "hint": result.get("hint"),
             }
 
@@ -278,4 +295,4 @@ def fetch_secret(
         raise NetworkError("Request timed out (10s)") from exc
 
     except json.JSONDecodeError as exc:
-        raise ApiError("Invalid JSON response from server") from exc
+        raise ValidationError("Invalid server response: body is not valid JSON.") from exc

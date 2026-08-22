@@ -168,12 +168,9 @@ export async function createEncryptedBlob(plaintextBytes, cryptoKey) {
         ciphertext: base64urlEncode(ciphertext),
     });
 
-    const blob = base64urlEncode(new TextEncoder().encode(json));
-
-    // Zero intermediate buffers before returning.
-    zeroBytes(ciphertext);
-
-    return blob;
+    // Ciphertext and IV are not sensitive — they are about to be uploaded —
+    // so no zeroing here. Key and plaintext buffers are the callers' to zero.
+    return base64urlEncode(new TextEncoder().encode(json));
 }
 
 // ---------------------------------------------------------------------------

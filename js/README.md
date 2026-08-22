@@ -6,7 +6,7 @@ Create a one-time secret link: encrypted on your device and self-destructing aft
 
 Designed for zero-knowledge secret handoff between independent systems: AI agents, CI/CD pipelines, GitHub Actions, and human operators.
 
-**New in v1.3:** Webhook callbacks (`--callback-url`) notify your pipeline when a secret is consumed. Idempotency keys are auto-generated on every create for safe retries. See [Webhook callback](#webhook-callback) and [Idempotency](#idempotency) below.
+**New in v2.0:** `retrieveSecret()` returns `purgeAt` as a Unix timestamp in seconds (breaking — it was a numeric string that never parsed as the documented ISO date). The plaintext ceiling rises to 14,336 UTF-8 bytes, and anonymous callers may now use the 5/15/30-minute expiries. See the [CHANGELOG](https://github.com/zephr-io/zephr-sdk/blob/main/js/CHANGELOG.md).
 
 ## How it works
 
@@ -49,7 +49,7 @@ echo "secret" | zephr [options]       # Create from stdin
 zephr retrieve <link> [options]       # Retrieve and decrypt
 
 Create options:
-  -e, --expiry <minutes> Expiration in minutes: 5, 15, 30, 60, 1440, 10080, or 43200 (default: 60; sub-hour values (5, 15, 30) require Dev/Pro; all other values require a free account or higher)
+  -e, --expiry <minutes> Expiration in minutes: 5, 15, 30, 60, 1440, 10080, or 43200 (default: 60; anonymous callers may use up to 60, every longer value requires an API key from any account)
   -s, --split            Return URL and key separately
   -H, --hint <label>     Plaintext label for routing and audit logs (1-128 printable ASCII, not encrypted)
   --callback-url <url>   HTTPS webhook URL — receive a signed event on consumption
@@ -88,7 +88,7 @@ cat ~/.ssh/id_rsa.pub | zephr
 zephr "$API_KEY" --expiry 10080 --api-key zeph_...
 ZEPHR_API_KEY=zeph_... zephr "$API_KEY" --expiry 10080
 
-# Dev/Pro: 30-day expiry
+# 30-day expiry (requires an API key)
 zephr "$API_KEY" --expiry 43200 --api-key zeph_...
 
 # Webhook callback — get notified when the secret is consumed
@@ -149,14 +149,12 @@ Expires in 1 hour. One-time access only.
 
 ## Authentication
 
-The CLI and SDK work without an account. No setup required. **Free, Dev, and Pro tier features require an API key.** Pass it via `--api-key` or the `ZEPHR_API_KEY` environment variable. Anonymous requests are capped at 3/day per IP with a 1 h max expiry.
+The CLI and SDK work without an account. No setup required. **Higher quotas and expiries beyond 1 hour require a free account.** Pass it via `--api-key` or the `ZEPHR_API_KEY` environment variable. Anonymous requests are capped at 3/day per IP with a 1 h max expiry.
 
 | Tier | Create limit | Expiry options | Max size | Authentication |
 |------|-------------|----------------|----------|----------------|
-| Anonymous | 3/day | 1h | 6 KB | None |
-| Free | 50/month | 1h, 24h, 7d, 30d | 20 KB | `--api-key zeph_...` |
-| Dev ($15/mo) | 2,000/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 200 KB | `--api-key zeph_...` |
-| Pro ($39/mo) | 50,000/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 1 MB | `--api-key zeph_...` |
+| Anonymous | 3/day | 5m, 15m, 30m, 1h | 6 KB | None |
+| Free | 500/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 20 KB | `--api-key zeph_...` |
 
 **Getting an API key:** Log in at [zephr.io/account](https://zephr.io/account), open the API Keys tab, and create a key. The raw key is shown exactly once. Copy it immediately.
 
@@ -246,14 +244,14 @@ Split mode (`split: true`):
 }
 ```
 
-`retrieveSecret()` resolves to a `RetrievalResult` object with properties `plaintext` (string), `hint` (string or undefined), and `purgeAt` (string or undefined).
+`retrieveSecret()` resolves to a `RetrievalResult` object with properties `plaintext` (string), `hint` (string or undefined), and `purgeAt` (number or undefined) — a Unix timestamp in seconds.
 
 Authenticated use: pass your API key for higher limits and longer expiry:
 
 ```js
-// Free: 50/mo, 30d max; Dev: 2,000/mo, 30d max; Pro: 50,000/mo, 30d max
+// Free: 500/mo, 30d max expiry
 const { fullLink } = await createSecret('sk-live-abc123', {
-  expiry: 10080,                          // up to 43200 on Dev/Pro
+  expiry: 10080,                          // any value up to 43200 with an apiKey
   apiKey: process.env.ZEPHR_API_KEY,      // 'zeph_...'
 });
 
@@ -315,7 +313,7 @@ try {
   const { fullLink } = await createSecret('my secret');
 } catch (err) {
   if (err instanceof ValidationError) {
-    // Invalid input: empty or whitespace-only string, exceeds 2,048 bytes, unsupported expiry
+    // Invalid input: empty or whitespace-only string, exceeds 14,336 bytes, unsupported expiry
   } else if (err instanceof EncryptionError) {
     // AES-GCM key generation or encryption/decryption failed
   } else if (err instanceof ApiError) {
@@ -332,7 +330,7 @@ Common `ApiError` codes:
 | Code | Status | Meaning |
 |------|--------|---------|
 | `INVALID_API_KEY` | 401 | Key not found or revoked |
-| `UPGRADE_REQUIRED` | 403 | Feature requires a higher tier (e.g. expiry > 60 min without an account, or sub-hour expiry (5, 15, 30 min) without Dev/Pro) |
+| `UPGRADE_REQUIRED` | 403 | Not permitted for the caller's tier (e.g. any expiry other than 60 min without an account, or a webhook `callbackUrl` without an account) |
 | `ANON_RATE_LIMIT_EXCEEDED` | 429 | Anonymous daily limit reached (3/day per IP) |
 | `MONTHLY_LIMIT_EXCEEDED` | 429 | Monthly create limit reached for this API key |
 | `PAYLOAD_TOO_LARGE` | 413 | Encrypted blob exceeds the tier blob ceiling |

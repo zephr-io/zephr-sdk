@@ -226,7 +226,7 @@ function validateInput(secret, options) {
 
     if (!VALID_EXPIRY.has(expiry)) {
         throw new ValidationError(
-            `expiry must be one of: ${[...VALID_EXPIRY].join(', ')} (minutes). Sub-hour values require Dev/Pro.`,
+            `expiry must be one of: ${[...VALID_EXPIRY].join(', ')} (minutes). Anonymous callers may use up to 60.`,
         );
     }
     if (typeof split !== 'boolean') {
@@ -244,12 +244,12 @@ function validateInput(secret, options) {
     validateCallbackSecret(callbackSecret, callbackUrl !== undefined);
     validateIdempotencyKey(idempotencyKey);
 
-    if (apiKey === null && expiry !== 60) {
-        throw new ValidationError(
-            'Anonymous use is limited to 60-minute (1h) expiry — pass apiKey to unlock more options ' +
-            '(free: up to 30 days, Dev/Pro: adds sub-hour). Create a free account at https://zephr.io/account',
-        );
-    }
+    // No tier-gated expiry check here, by design. The SDK cannot know the
+    // caller's tier before the request (a key may be invalid or revoked, and
+    // the anonymous allowance is a product decision that changes), and a local
+    // copy of the rule goes stale. Validate shape locally (VALID_EXPIRY, the
+    // union across tiers); the server answers 403 UPGRADE_REQUIRED naming the
+    // values the tier permits. Same principle as SECRET_MAX_BYTES in limits.js.
 
     if (callbackUrl !== undefined && apiKey === null) {
         throw new ValidationError(
@@ -373,13 +373,13 @@ function parseRetrieveInput(input) {
  *   The plaintext secret to encrypt.  The exact string is encrypted and
  *   returned to the recipient unchanged — no normalisation is applied.
  *   Empty strings and strings consisting entirely of whitespace are rejected.
- *   Maximum 2,048 UTF-8 bytes (equivalent to 2,048 ASCII characters; fewer
+ *   Maximum 14,336 UTF-8 bytes (equivalent to 14,336 ASCII characters; fewer
  *   for multi-byte Unicode).
  *
  * @param {object}        [options]
  * @param {5|15|30|60|1440|10080|43200}  [options.expiry=60]
  *   How long the secret remains available, in minutes.  Defaults to 60 (1 hour).
- *   Sub-hour values (5, 15, 30) require a Dev or Pro API key.
+ *   Anonymous callers may use up to 60; every longer value requires an apiKey.
  * @param {boolean}       [options.split=false]
  *   When true, returns the URL and key as separate fields so they can be
  *   delivered through independent channels.
@@ -529,8 +529,11 @@ export async function retrieveSecret(link, options) {
     }
 
     try {
-        const response      = await fetchSecret(secretId, apiKey);
+        // Import the key BEFORE fetching. Retrieval consumes the one-time
+        // record, so a malformed key must fail here — offline — while the
+        // secret is still retrievable with a corrected link.
         const cryptoKey     = await importKeyFromString(keyString);
+        const response      = await fetchSecret(secretId, apiKey);
         const plaintext     = await decryptBlob(response.encryptedBlob, cryptoKey);
         return {
             plaintext,

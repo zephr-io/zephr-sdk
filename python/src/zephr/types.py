@@ -39,8 +39,10 @@ class RetrievalResult:
     Attributes:
         plaintext: The decrypted secret string.
         hint: Plaintext label, or None if not set.
-        purge_at: ISO 8601 timestamp when the consumed record will be purged, or None.
+        purge_at: Unix timestamp in SECONDS at which the consumed record
+            becomes eligible for deletion, or None. Multiply by 1000 for
+            millisecond-based APIs; pass to datetime.fromtimestamp() directly.
     """
     plaintext: str
     hint: str | None = None
-    purge_at: str | None = None
+    purge_at: int | None = None

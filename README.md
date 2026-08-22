@@ -198,14 +198,12 @@ Full Python SDK reference: [zephr.io/docs](https://zephr.io/docs)
 
 ## Authentication
 
-The CLI and both SDKs work without an account. No setup required. **Free, Dev, and Pro tier features require an API key.** Anonymous requests are capped at 3/day per IP with a 1 h max expiry.
+The CLI and both SDKs work without an account. No setup required. **Higher quotas and expiries beyond 1 hour require a free account.** Anonymous requests are capped at 3/day per IP with a 1 h max expiry.
 
 | Tier | Create limit | Expiry options | Max size |
 |------|-------------|----------------|----------|
-| Anonymous | 3/day | 1h | 6 KB |
-| Free | 50/month | 1h, 24h, 7d, 30d | 20 KB |
-| Dev ($15/mo) | 2,000/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 200 KB |
-| Pro ($39/mo) | 50,000/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 1 MB |
+| Anonymous | 3/day | 5m, 15m, 30m, 1h | 6 KB |
+| Free | 500/month | 5m, 15m, 30m, 1h, 24h, 7d, 30d | 20 KB |
 
 **Getting an API key:** Log in at [zephr.io/account](https://zephr.io/account), open the API Keys tab, and create a key. The raw key is shown exactly once. Copy it immediately.
 

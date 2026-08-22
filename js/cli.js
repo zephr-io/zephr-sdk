@@ -94,6 +94,7 @@ function parseCreateArgs(args) {
     let i = 0;
     while (i < args.length) {
         const arg = args[i];
+        const valueField = CREATE_VALUE_FLAGS[arg];
 
         if (arg === '--help' || arg === '-h') {
             config.help = true;
@@ -105,19 +106,44 @@ function parseCreateArgs(args) {
             config.split = true;
         } else if (arg === '--api-key' || arg === '-k') {
             i = parseApiKeyFlag(args, i, config);
-        } else if (arg === '--hint' || arg === '-H') {
-            ({ value: config.hint, nextIndex: i } = parseValueFlag(args, i, '--hint'));
-        } else if (arg === '--callback-url') {
-            ({ value: config.callbackUrl, nextIndex: i } = parseValueFlag(args, i, '--callback-url'));
-        } else if (arg === '--callback-secret') {
-            ({ value: config.callbackSecret, nextIndex: i } = parseValueFlag(args, i, '--callback-secret'));
-        } else if (!arg.startsWith('-') && !config.secret) {
-            config.secret = arg;
+        } else if (valueField) {
+            ({ value: config[valueField], nextIndex: i } = parseValueFlag(args, i, arg));
+        } else {
+            acceptPositional(config, 'secret', arg, 'zephr --help');
         }
         i++;
     }
 
     return config;
+}
+
+/** Value-taking create flags mapped to their config field. */
+const CREATE_VALUE_FLAGS = Object.freeze({
+    '--hint':            'hint',
+    '-H':                'hint',
+    '--callback-url':    'callbackUrl',
+    '--callback-secret': 'callbackSecret',
+});
+
+/**
+ * Accept a positional argument into config[field], rejecting unknown flags
+ * and surplus positionals. A typo'd flag silently falling through is not
+ * harmless here: a mistyped --expiry means the secret ships with the
+ * default window.
+ *
+ * @param {object} config
+ * @param {string} field    Config key the positional fills (once).
+ * @param {string} arg      The token being examined.
+ * @param {string} helpCmd  Help command for the error message.
+ */
+function acceptPositional(config, field, arg, helpCmd) {
+    if (arg.startsWith('-')) {
+        throw new Error(`Unknown option: "${arg}". Run "${helpCmd}" for usage.`);
+    }
+    if (config[field]) {
+        throw new Error(`Unexpected argument: "${arg}". Run "${helpCmd}" for usage.`);
+    }
+    config[field] = arg;
 }
 
 /**
@@ -145,15 +171,13 @@ function parseRetrieveArgs(args) {
         } else if (arg === '--version' || arg === '-v') {
             config.version = true;
         } else if (arg === '--url') {
-            if (i + 1 >= args.length) throw new Error('--url requires a value');
-            config.retrieveUrl = args[++i];
+            ({ value: config.retrieveUrl, nextIndex: i } = parseValueFlag(args, i, '--url'));
         } else if (arg === '--key') {
-            if (i + 1 >= args.length) throw new Error('--key requires a value');
-            config.retrieveKey = args[++i];
+            ({ value: config.retrieveKey, nextIndex: i } = parseValueFlag(args, i, '--key'));
         } else if (arg === '--api-key' || arg === '-k') {
             i = parseApiKeyFlag(args, i, config);
-        } else if (!arg.startsWith('-') && !config.link) {
-            config.link = arg;
+        } else {
+            acceptPositional(config, 'link', arg, 'zephr retrieve --help');
         }
         i++;
     }
@@ -205,11 +229,10 @@ USAGE:
 
 OPTIONS (create):
   -e, --expiry <minutes> Expiration in minutes (default: 60)
-                           5, 15, 30        — Dev/Pro only
-                           60 (1h)          — all tiers
-                           1440 (24h)       — Free and above
-                           10080 (7d)       — Free and above
-                           43200 (30d)      — Free and above
+                           5, 15, 30, 60    — anonymous or authenticated
+                           1440 (24h)       — requires an API key
+                           10080 (7d)       — requires an API key
+                           43200 (30d)      — requires an API key
   -H, --hint <label>     Plaintext label (e.g. "STRIPE_KEY_PROD"), max 128 chars
   -s, --split            Split URL and key for separate transmission
   -k, --api-key <key>    Authenticate with a Zephr API key (overrides ZEPHR_API_KEY)
@@ -226,10 +249,10 @@ GENERAL:
   -h, --help             Show this help message
 
 AUTHENTICATION:
-  API keys unlock more expiry options, higher rate limits, and usage tracking.
-  Free account: 1h–30d expiry, 50 secrets/month.
-  Dev account:  5m–30d expiry, 2,000 secrets/month.
-  Pro account:  5m–30d expiry, 50,000 secrets/month.
+  An API key unlocks every expiry value, a higher quota, larger payloads,
+  and webhook callbacks. Accounts are free.
+  Anonymous:    up to 1h expiry (5m/15m/30m/1h), 3 secrets/day.
+  Free account: 5m–30d expiry, 500 secrets/month.
   Create a key at https://zephr.io/account, then pass it via:
     --api-key zeph_...          flag
     ZEPHR_API_KEY=zeph_... zephr  environment variable
@@ -299,13 +322,27 @@ export function printSuccess(linkData, expiry) {
         console.log(`\nLink: ${linkData.fullLink}`);
     }
 
-    const EXPIRY_LABELS = {
-        5: '5 minutes', 15: '15 minutes', 30: '30 minutes',
-        60: '1 hour', 1440: '24 hours', 10080: '7 days', 43200: '30 days'
-    };
-    const expiryText = EXPIRY_LABELS[expiry];
-    if (!expiryText) throw new Error(`Unexpected expiry value: ${expiry}`);
-    console.log(`\nExpires in ${expiryText}. One-time access only.\n`);
+    console.log(`\nExpires in ${formatExpiryMinutes(expiry)}. One-time access only.\n`);
+}
+
+/**
+ * Human label for an expiry in minutes: "5 minutes", "1 hour", "24 hours",
+ * "7 days". Total — never throws: once the upload has succeeded, nothing on
+ * the output path may fail, or the link is lost while the secret exists.
+ * Copy of server/utils/duration.js formatExpiryMinutes (the packaged CLI
+ * cannot import server/); tests/tiers.test.js pins the copies' agreement.
+ * @param {number} minutes
+ * @returns {string}
+ */
+export function formatExpiryMinutes(minutes) {
+    if (minutes % 1440 === 0 && minutes > 1440) {
+        return `${minutes / 1440} days`;
+    }
+    if (minutes % 60 === 0 && minutes >= 60) {
+        const hours = minutes / 60;
+        return `${hours} hour${hours === 1 ? '' : 's'}`;
+    }
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
 }
 
 /**

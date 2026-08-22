@@ -14,7 +14,7 @@ retrieve_secret() call.
 import re
 import urllib.parse
 
-from .crypto import decrypt, encrypt, generate_key
+from .crypto import decrypt, encrypt, generate_key, validate_key_string
 from .memory import zero_bytes
 from .api import fetch_secret, upload_secret
 from .link import generate_link
@@ -77,8 +77,11 @@ def _is_private_host(hostname: str) -> bool:
         return _is_private_host(mapped.group(1))
     return False
 
-# Matches the secret ID segment in a URL path: /secret/<22-char base64url>
-_SECRET_ID_RE = re.compile(r"^/secret/([A-Za-z0-9_-]{22})(?:[/?#]|$)")
+# Matches the 22-character base64url secret ID in a URL path. The negative
+# lookahead prevents matching a 22-char prefix of a longer ID. Same pattern
+# as the JS SDK's SECRET_ID_RE_PATH, and like it, not anchored to the path
+# start — a link that proxies /secret/ under a prefix still parses.
+_SECRET_ID_RE = re.compile(r"/secret/([A-Za-z0-9_-]{22})(?![A-Za-z0-9_-])")
 
 
 def create_secret(
@@ -102,10 +105,10 @@ def create_secret(
     whitespace are rejected. The caller is responsible for any other pre-processing.
 
     Args:
-        secret: The plaintext secret to share (max 2,048 UTF-8 bytes).
+        secret: The plaintext secret to share (max 14,336 UTF-8 bytes).
         expiry: Minutes until expiration — 5, 15, 30, 60, 1440, 10080, or 43200
-            (default: 60). Sub-hour values (5, 15, 30) require a Dev or Pro API key.
-            All other values require a free account or higher.
+            (default: 60). Anonymous callers may use up to 60; every longer
+            value requires an api_key from any account.
         split: If True, return URL and key separately for split sharing.
         hint: Optional plaintext label for routing and audit logs. Not encrypted.
             Must be 1-128 printable ASCII characters.
@@ -121,16 +124,17 @@ def create_secret(
             - secret_id: 22-character base64url secret identifier
 
     Raises:
-        ValidationError: If input is invalid (empty or whitespace-only secret, exceeds 2,048 UTF-8 bytes,
+        ValidationError: If input is invalid (empty or whitespace-only secret, exceeds 14,336 UTF-8 bytes,
             invalid expiry value).
         EncryptionError: If encryption fails.
         ApiError: If the server returns an error. Common cases:
             - 413 PAYLOAD_TOO_LARGE: encrypted blob exceeds the per-tier ceiling
-              (anonymous: 6KB, free: 20KB, dev: 200KB, pro: 1MB). Reduce the secret
-              size or authenticate with a higher-tier API key.
+              (anonymous: 6KB, free: 20KB). Reduce the secret size, or pass an
+              api_key so the request is billed against your account.
             - 429 ANON_RATE_LIMIT_EXCEEDED / MONTHLY_LIMIT_EXCEEDED: creation rate or
               monthly quota reached. See err.code for details.
-            - 403 UPGRADE_REQUIRED: the requested expiry requires a higher tier.
+            - 403 UPGRADE_REQUIRED: the requested expiry is not permitted for the
+              caller's tier (anonymous callers may use up to 60).
         NetworkError: If the request fails.
 
     Example::
@@ -163,11 +167,13 @@ def create_secret(
     if isinstance(api_key, str) and not api_key.strip():
         raise ValidationError("api_key must not be empty. Pass None for anonymous use.")
 
-    if api_key is None and expiry != 60:
-        raise ValidationError(
-            "Anonymous use is limited to 60-minute expiry — pass api_key= to unlock other expiry values "
-            "(free: up to 30 days, Dev/Pro: adds sub-hour). Create a free account at https://zephr.io/account"
-        )
+    # No tier-gated expiry check here, by design: which values a caller may use
+    # depends on their tier, and the client cannot know that before the request
+    # (a key may be invalid or revoked, and the anonymous allowance changes as a
+    # product decision). A local copy of that rule goes stale and rejects
+    # requests the server accepts. Shape is validated above via
+    # _VALID_EXPIRY_MINUTES; policy belongs to the server, which answers 403
+    # UPGRADE_REQUIRED naming the values the tier permits.
 
     if not isinstance(split, bool):
         raise ValidationError("split must be a boolean")
@@ -325,7 +331,7 @@ def retrieve_secret(
 
     Returns:
         RetrievalResult dataclass with ``plaintext`` (str), ``hint`` (str or None),
-        and ``purge_at`` (str or None).
+        and ``purge_at`` (int Unix seconds, or None).
 
     Raises:
         ValidationError: If the link format is invalid.
@@ -353,6 +359,11 @@ def retrieve_secret(
         raise ValidationError("api_key must not be empty. Pass None for anonymous use.")
 
     secret_id, key_string = _parse_retrieve_input(link)
+
+    # Validate the key BEFORE fetching. Retrieval consumes the one-time
+    # record, so a malformed key must fail here — offline — while the
+    # secret is still retrievable with a corrected link.
+    validate_key_string(key_string)
 
     response = fetch_secret(secret_id, api_key=api_key)
 

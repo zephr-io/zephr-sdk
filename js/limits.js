@@ -1,20 +1,35 @@
 /**
  * Shared input limits for the Zephr CLI and SDK.
  *
- * SECRET_MAX_BYTES — the enforced limit.
- *   Checked against the UTF-8 encoded byte length of the plaintext.
- *   2,048 bytes produces a ~2.8 KB encrypted blob — well within the 16 KB
- *   server limit.  For pure-ASCII secrets this is equivalent to 2,048 chars;
- *   for multi-byte Unicode the effective character count is lower.
+ * SECRET_MAX_BYTES — the enforced limit, checked against the UTF-8 encoded
+ *   byte length of the plaintext.  For pure-ASCII secrets this is equivalent
+ *   to the same number of characters; for multi-byte Unicode the effective
+ *   character count is lower.
  *   Used by cli/index.js (byte-accurate check) and cli/cli.js (streaming guard).
+ *
+ *   Derivation — this is the largest plaintext that fits the highest server
+ *   blob ceiling (20KB for the Free tier, see server/config/tiers.js).  The
+ *   wire format is base64url(JSON.stringify({ iv, ciphertext })) and the
+ *   server measures the *decoded* JSON, so for a plaintext of P bytes:
+ *
+ *     ciphertext = P + 16                       (AES-GCM tag)
+ *     JSON bytes = 41 + ceil((P + 16) * 4 / 3)  (25 framing + 16 for the b64 IV)
+ *
+ *   Solving 41 + ceil((P + 16) * 4/3) ≤ 20480 gives P ≤ 15,313.  We ship
+ *   14,336 (14 KiB) — a round number ~1KB under the true ceiling, so a payload
+ *   that passes this check never comes back as a 413.
+ *
+ *   This is the permissive bound: the SDK cannot know the caller's tier before
+ *   the request, so anonymous callers may still receive a 413 with a message
+ *   directing them to create a free account.  The server is authoritative.
  *
  * SECRET_MAX_LENGTH — exported for npm package API compatibility only.
  *   The CLI itself does not use this constant; it uses SECRET_MAX_BYTES.
- *   The web interface has its own public/limits.js with separate ANON_MAX_LENGTH
- *   (1,000 code units for anonymous users) and SECRET_MAX_LENGTH (2,048 for auth).
+ *   The web interface has its own public/limits.js with a separate, smaller
+ *   ANON_MAX_BYTES for unauthenticated users.
  */
-export const SECRET_MAX_BYTES   = 2048;
-export const SECRET_MAX_LENGTH  = 2048;
+export const SECRET_MAX_BYTES   = 14336;
+export const SECRET_MAX_LENGTH  = 14336;
 
 // 128-bit entropy (16 bytes) encoded as base64url without padding = exactly 22 characters.
 // Used by the SDK and CLI to validate secret IDs before interpolating into URLs.

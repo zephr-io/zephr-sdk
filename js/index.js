@@ -4,25 +4,16 @@
  * Zephr CLI - Command-line tool for secure one-time secret sharing
  *
  * Architecture:
- * - crypto.js: Encryption logic (AES-GCM-256)
- * - api.js: HTTP communication with Zephr server
- * - link.js: URL generation
+ * - sdk.js: createSecret/retrieveSecret (validation, crypto, HTTP)
  * - cli.js: User interface (args, stdin, output)
  * - index.js: Orchestrator (this file)
  *
- * Design principles:
- * - Single responsibility per module
- * - No dependencies (uses Node.js built-ins only)
- * - Compatible with browser crypto implementation
- * - Testable (pure functions, dependency injection)
+ * The CLI is a thin shell over the SDK: both directions go through the
+ * same validation, encryption, and transport code that npm consumers use.
  */
 
-import { generateKey, exportKey, createEncryptedBlob, createKeyString } from './crypto.js';
-import { uploadSecret } from './api.js';
-import { generateLink } from './link.js';
 import { parseArgs, readStdin, printHelp, printRetrieveHelp, printVersion, printSuccess, printError } from './cli.js';
-import { retrieveSecret } from './sdk.js';
-import { SECRET_MAX_BYTES } from './limits.js';
+import { createSecret, retrieveSecret } from './sdk.js';
 
 // ---------------------------------------------------------------------------
 // Helpers — extracted to keep main() linear and under Sonar's complexity cap.
@@ -88,21 +79,11 @@ async function resolveSecretText(config) {
     return readStdin();
 }
 
-/** 3-pass memory overwrite matching browser MemoryUtils.overwriteBuffer. */
-function zeroBuffer(buf) {
-    if (!buf) return;
-    buf.fill(0x00);
-    buf.fill(0xFF);
-    buf.fill(0x00);
-}
-
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function main() {
-    let secretBytes = null;
-    let keyBytes = null;
     let exitCode = 0;
 
     try {
@@ -118,18 +99,8 @@ async function main() {
             return; // unreachable (runRetrieve exits), but explicit for clarity
         }
 
-        // Client-side enforcement: anonymous use is capped at 60 minutes (1h).
-        if (apiKey === null && config.expiry !== 60) {
-            throw new Error(
-                'Anonymous use is limited to 60-minute (1h) expiry.\n' +
-                'To unlock more expiry options, pass an API key (free: up to 30d, Dev/Pro: adds sub-hour):\n' +
-                `  zephr "secret" --expiry ${config.expiry} --api-key zeph_...\n` +
-                `  ZEPHR_API_KEY=zeph_... zephr "secret" --expiry ${config.expiry}\n` +
-                'Create a free account at https://zephr.io/account'
-            );
-        }
-
-        // Client-side enforcement: webhook callbacks require authentication.
+        // Pre-check with CLI-appropriate phrasing; the SDK enforces the same
+        // rule but its message names SDK options, not flags.
         if (apiKey === null && config.callbackUrl) {
             throw new Error(
                 'Webhook callbacks require authentication.\n' +
@@ -141,42 +112,22 @@ async function main() {
 
         const secretText = await resolveSecretText(config);
 
-        if (!secretText || secretText.trim().length === 0) {
-            throw new Error('Secret must not be empty or consist only of whitespace.');
-        }
-
-        secretBytes = new TextEncoder().encode(secretText);
-
-        if (secretBytes.byteLength > SECRET_MAX_BYTES) {
-            throw new Error(`Secret too large (max ${SECRET_MAX_BYTES.toLocaleString()} bytes; input encodes to ${secretBytes.byteLength.toLocaleString()} bytes)`);
-        }
-
-        const key = await generateKey();
-        keyBytes = new Uint8Array(await exportKey(key));
-        const keyString = createKeyString(keyBytes);
-        const encryptedBlob = await createEncryptedBlob(secretBytes, key);
-
-        const result = await uploadSecret(
-            encryptedBlob,
-            config.expiry,
-            config.split,
-            config.hint ?? undefined,
+        // Validation (emptiness, byte length, hint/callback shape), encryption,
+        // upload, and buffer zeroing all live in the SDK — the CLI adds nothing.
+        const result = await createSecret(secretText, {
+            expiry:         config.expiry,
+            split:          config.split,
             apiKey,
-            {
-                callbackUrl: config.callbackUrl ?? undefined,
-                callbackSecret: config.callbackSecret ?? undefined,
-            },
-        );
+            hint:           config.hint ?? undefined,
+            callbackUrl:    config.callbackUrl ?? undefined,
+            callbackSecret: config.callbackSecret ?? undefined,
+        });
 
-        const linkData = generateLink(result.id, keyString, config.split);
-        printSuccess(linkData, config.expiry);
+        printSuccess(result, config.expiry);
 
     } catch (error) {
         printError(error);
         exitCode = 1;
-    } finally {
-        zeroBuffer(secretBytes);
-        zeroBuffer(keyBytes);
     }
 
     process.exit(exitCode);

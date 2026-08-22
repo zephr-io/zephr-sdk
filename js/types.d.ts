@@ -17,9 +17,11 @@ export interface CreateSecretOptions {
     /**
      * How long the secret remains available, in minutes.
      *
-     * Accepted values: `5`, `15`, `30` (sub-hour, Dev/Pro only),
-     * `60` (1 hour), `1440` (24 hours), `10080` (7 days), `43200` (30 days).
-     * Sub-hour values require a Dev or Pro API key.
+     * Accepted values: `5`, `15`, `30` (sub-hour), `60` (1 hour),
+     * `1440` (24 hours), `10080` (7 days), `43200` (30 days).
+     *
+     * Anonymous callers (no `apiKey`) may use up to `60`. Every longer value
+     * requires an API key from any account.
      *
      * @default 60
      */
@@ -138,8 +140,8 @@ export interface RetrievalResult {
     plaintext: string;
     /** Plaintext label set by the creator, if provided. */
     hint?: string;
-    /** ISO 8601 timestamp or Unix seconds indicating when the record will be purged from storage. */
-    purgeAt?: string;
+    /** Unix timestamp in seconds at which the consumed record may be deleted. */
+    purgeAt?: number;
 }
 
 /**
@@ -173,7 +175,7 @@ export interface RetrieveSecretOptions {
  *   The plaintext secret to encrypt.  The exact string is encrypted and
  *   returned to the recipient unchanged — no normalisation is applied.
  *   Empty strings and strings consisting entirely of whitespace are rejected.
- *   Maximum 2,048 UTF-8 bytes (equivalent to 2,048 ASCII characters; fewer
+ *   Maximum 14,336 UTF-8 bytes (equivalent to 14,336 ASCII characters; fewer
  *   for multi-byte Unicode such as emoji or CJK characters).
  * @param options Optional configuration.
  *
@@ -266,8 +268,10 @@ export type ApiErrorCode =
     | 'INVALID_REQUEST_BODY'
     | 'INVALID_API_KEY'
     | 'ANON_RATE_LIMIT_EXCEEDED'
+    | 'SERVICE_RATE_LIMIT'
     | 'UPGRADE_REQUIRED'
     | 'PAYLOAD_TOO_LARGE'
+    | 'REQUEST_TOO_LARGE'
     | 'MONTHLY_LIMIT_EXCEEDED'
     | 'SECRET_NOT_FOUND'
     | 'SECRET_EXPIRED'
@@ -276,11 +280,13 @@ export type ApiErrorCode =
     | 'INVALID_CALLBACK_URL_FORMAT'
     | 'INVALID_CALLBACK_URL_PROTOCOL'
     | 'INVALID_CALLBACK_URL_LENGTH'
+    | 'CALLBACK_URL_PRIVATE_HOST'
     | 'MISSING_CALLBACK_SECRET'
     | 'UNEXPECTED_CALLBACK_SECRET'
     | 'INVALID_CALLBACK_SECRET_TYPE'
     | 'INVALID_CALLBACK_SECRET_LENGTH'
-    | 'INVALID_IDEMPOTENCY_KEY';
+    | 'INVALID_IDEMPOTENCY_KEY'
+    | 'INTERNAL_ERROR';
 
 /**
  * Base class for all Zephr SDK errors.
@@ -323,8 +329,10 @@ export declare class ApiError extends ZephrError {
      * Machine-readable error code from the server response body.
      * `null` when the server did not return a structured error envelope.
      * See {@link ApiErrorCode} for the full list of known values.
+     * (`string & {}` keeps IDE autocomplete for the known codes while
+     * still admitting codes newer than these declarations.)
      */
-    readonly code: ApiErrorCode | string | null;
+    readonly code: ApiErrorCode | (string & {}) | null;
 }
 
 /**
